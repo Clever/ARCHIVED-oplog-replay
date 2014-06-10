@@ -13,13 +13,12 @@ import (
 //   3) Concatenate together these bytes
 func New(r io.Reader) *bufio.Scanner {
 	scanner := bufio.NewScanner(r)
-	scanner.Split(func(data []byte, atEOF bool) (advance int, token []byte, err error) {
+	scanner.Split(func(data []byte, atEOF bool) (int, []byte, error) {
 		r := bytes.NewBuffer(data)
 
 		// 1)
 		// We don't read straight into the size because we want to save these bytes for later, for
 		// when we reconstruct the full document.
-
 		sizeBytes := make([]byte, 4)
 		if _, err := r.Read(sizeBytes); err == io.EOF {
 			// Not enough data in the input, signal that we need more

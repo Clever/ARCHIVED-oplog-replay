@@ -14,6 +14,7 @@ import (
 func New(r io.Reader) *bufio.Scanner {
 	scanner := bufio.NewScanner(r)
 	scanner.Split(func(data []byte, atEOF bool) (int, []byte, error) {
+		needMoreData := func() (int, []byte, error) { return 0, nil, nil }
 		r := bytes.NewBuffer(data)
 
 		// 1)
@@ -21,8 +22,7 @@ func New(r io.Reader) *bufio.Scanner {
 		// when we reconstruct the full document.
 		sizeBytes := make([]byte, 4)
 		if _, err := r.Read(sizeBytes); err == io.EOF {
-			// Not enough data in the input, signal that we need more
-			return 0, nil, nil
+			return needMoreData()
 		} else if err != nil {
 			return 0, nil, err
 		}
@@ -33,8 +33,7 @@ func New(r io.Reader) *bufio.Scanner {
 		}
 
 		if int(size-4) > r.Len() {
-			// Not enough data in the input, signal that we need more
-			return 0, nil, nil
+			return needMoreData()
 		}
 
 		// 2)

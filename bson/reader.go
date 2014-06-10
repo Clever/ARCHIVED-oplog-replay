@@ -7,6 +7,8 @@ import (
 	"io"
 )
 
+func needMoreData() (int, []byte, error) { return 0, nil, nil }
+
 // mongodump outputs collections as binary files with no delimiter between documents. We need to:
 //   1) Read 4 bytes (the size of the document, including these bytes)
 //   2) Read the size - 4 bytes (the rest of the document)
@@ -14,7 +16,6 @@ import (
 func New(r io.Reader) *bufio.Scanner {
 	scanner := bufio.NewScanner(r)
 	scanner.Split(func(data []byte, atEOF bool) (int, []byte, error) {
-		needMoreData := func() (int, []byte, error) { return 0, nil, nil }
 		r := bytes.NewBuffer(data)
 
 		// 1)

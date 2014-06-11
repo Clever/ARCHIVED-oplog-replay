@@ -10,6 +10,7 @@ import (
 	"labix.org/v2/mgo"
 	"labix.org/v2/mgo/bson"
 	"os"
+	"time"
 )
 
 func parseBSON(r io.Reader) ([]map[string]interface{}, error) {
@@ -31,7 +32,7 @@ func parseBSON(r io.Reader) ([]map[string]interface{}, error) {
 }
 
 func main() {
-	// speed := flag.Float64("speed", 1, "Sets multiplier for playback speed.")
+	speed := flag.Float64("speed", 1, "Sets multiplier for playback speed.")
 	host := flag.String("host", "localhost", "Mongo host to playback onto.")
 	flag.Parse()
 
@@ -47,11 +48,24 @@ func main() {
 		panic(err)
 	}
 
+	logStartTime := -1
+	replayStartTime := time.Now()
 	for _, op := range ops {
 		if op["ns"] == "" {
 			// Can't apply ops without a db name
 			continue
 		}
+
+		eventTime := int((op["ts"].(bson.MongoTimestamp)) >> 32)
+
+		if logStartTime == -1 {
+			logStartTime = eventTime
+		}
+
+		for time.Now().Sub(replayStartTime).Seconds()**speed < float64(eventTime-logStartTime) {
+			time.Sleep(time.Duration(10) * time.Millisecond)
+		}
+
 		opArray := []interface{}{op}
 		var result interface{}
 

@@ -28,8 +28,7 @@ func New(r io.Reader) *bufio.Scanner {
 			return needMoreData()
 		}
 
-		doc := data[0:size]
-		return int(size), doc, nil
+		return int(size), data[0:size], nil
 	})
 	return scanner
 }

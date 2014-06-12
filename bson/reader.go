@@ -17,10 +17,9 @@ func New(r io.Reader) *bufio.Scanner {
 		if len(data) < 4 {
 			return needMoreData()
 		}
-		sizeBytes := data[0:4]
 
 		var size int32
-		if err := binary.Read(bytes.NewBuffer(sizeBytes), binary.LittleEndian, &size); err != nil {
+		if err := binary.Read(bytes.NewBuffer(data[0:4]), binary.LittleEndian, &size); err != nil {
 			return 0, nil, err
 		}
 

@@ -16,36 +16,21 @@ func needMoreData() (int, []byte, error) { return 0, nil, nil }
 func New(r io.Reader) *bufio.Scanner {
 	scanner := bufio.NewScanner(r)
 	scanner.Split(func(data []byte, atEOF bool) (int, []byte, error) {
-		r := bytes.NewBuffer(data)
-
-		// 1)
-		// We don't read straight into the size because we want to save these bytes for later, for
-		// when we reconstruct the full document.
-		sizeBytes := make([]byte, 4)
-		if _, err := r.Read(sizeBytes); err == io.EOF {
+		if len(data) < 4 {
 			return needMoreData()
-		} else if err != nil {
-			return 0, nil, err
 		}
+		sizeBytes := data[0:4]
 
 		var size int32
 		if err := binary.Read(bytes.NewBuffer(sizeBytes), binary.LittleEndian, &size); err != nil {
 			return 0, nil, err
 		}
 
-		if int(size-4) > r.Len() {
+		if int(size) > len(data) {
 			return needMoreData()
 		}
 
-		// 2)
-		rest := make([]byte, size-4)
-		if _, err := r.Read(rest); err != nil {
-			return 0, nil, err
-		}
-
-		// 3)
-		doc := bytes.Join([][]byte{sizeBytes, rest}, []byte{})
-
+		doc := data[0:size]
 		return int(size), doc, nil
 	})
 	return scanner

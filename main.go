@@ -31,6 +31,29 @@ func parseBSON(r io.Reader) ([]map[string]interface{}, error) {
 	return ops, nil
 }
 
+func oplogReplay(ops []map[string]interface{}, applyOp func(interface{}), speed float64) {
+	logStartTime := -1
+	replayStartTime := time.Now()
+	for _, op := range ops {
+		if op["ns"] == "" {
+			// Can't apply ops without a db name
+			continue
+		}
+
+		eventTime := int((op["ts"].(bson.MongoTimestamp)) >> 32)
+
+		if logStartTime == -1 {
+			logStartTime = eventTime
+		}
+
+		for time.Now().Sub(replayStartTime).Seconds()*speed < float64(eventTime-logStartTime) {
+			time.Sleep(time.Duration(10) * time.Millisecond)
+		}
+
+		applyOp(op)
+	}
+}
+
 func main() {
 	speed := flag.Float64("speed", 1, "Sets multiplier for playback speed.")
 	host := flag.String("host", "localhost", "Mongo host to playback onto.")
@@ -48,31 +71,14 @@ func main() {
 		panic(err)
 	}
 
-	logStartTime := -1
-	replayStartTime := time.Now()
-	for _, op := range ops {
-		if op["ns"] == "" {
-			// Can't apply ops without a db name
-			continue
-		}
-
-		eventTime := int((op["ts"].(bson.MongoTimestamp)) >> 32)
-
-		if logStartTime == -1 {
-			logStartTime = eventTime
-		}
-
-		for time.Now().Sub(replayStartTime).Seconds()**speed < float64(eventTime-logStartTime) {
-			time.Sleep(time.Duration(10) * time.Millisecond)
-		}
-
-		opArray := []interface{}{op}
+	applyOp := func(op interface{}) {
 		var result interface{}
-
-		if err := session.Run(bson.M{"applyOps": opArray}, &result); err != nil {
+		if err := session.Run(bson.M{"applyOps": []interface{}{op}}, &result); err != nil {
 			panic(err)
 		}
 	}
+
+	oplogReplay(ops, applyOp, *speed)
 
 	fmt.Printf("Done! Read %d ops\n", len(ops))
 }

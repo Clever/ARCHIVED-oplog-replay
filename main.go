@@ -59,17 +59,17 @@ func main() {
 	host := flag.String("host", "localhost", "Mongo host to playback onto.")
 	flag.Parse()
 
-	session, err := mgo.Dial(*host)
-	if err != nil {
-		panic(err)
-	}
-	defer session.Close()
-
 	fmt.Println("Starting playback...")
 	ops, err := parseBSON(os.Stdin)
 	if err != nil {
 		panic(err)
 	}
+
+	session, err := mgo.Dial(*host)
+	if err != nil {
+		panic(err)
+	}
+	defer session.Close()
 
 	applyOp := func(op interface{}) {
 		var result interface{}

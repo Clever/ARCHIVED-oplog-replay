@@ -84,6 +84,7 @@ func main() {
 
 	applyOp := func(op interface{}) error {
 		var result interface{}
+		session.Refresh()
 		if err := session.Run(bson.M{"applyOps": []interface{}{op}}, &result); err != nil {
 			return err
 		}

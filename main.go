@@ -70,7 +70,7 @@ func main() {
 	host := flag.String("host", "localhost", "Mongo host to playback onto.")
 	flag.Parse()
 
-	fmt.Println("Starting playback...")
+	fmt.Println("Parsing BSON...")
 	ops, err := parseBSON(os.Stdin)
 	if err != nil {
 		panic(err)
@@ -91,9 +91,10 @@ func main() {
 		return nil
 	}
 
+	fmt.Println("Begin replaying...")
 	if err := oplogReplay(ops, applyOp, *speed); err != nil {
 		panic(err)
 	}
 
-	fmt.Printf("Done! Read %d ops\n", len(ops))
+	fmt.Printf("Done! Replayed %d ops\n", len(ops))
 }

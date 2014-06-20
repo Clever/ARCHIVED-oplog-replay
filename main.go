@@ -32,6 +32,14 @@ func parseBSON(r io.Reader) ([]map[string]interface{}, error) {
 }
 
 func oplogReplay(ops []map[string]interface{}, applyOp func(interface{}), speed float64) {
+	if speed == -1 {
+		for _, op := range ops {
+			if err := applyOp(op); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
 	logStartTime := -1
 	replayStartTime := time.Now()
 	for _, op := range ops {

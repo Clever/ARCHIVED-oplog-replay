@@ -31,7 +31,7 @@ func parseBSON(r io.Reader) ([]map[string]interface{}, error) {
 	return ops, nil
 }
 
-func oplogReplay(ops []map[string]interface{}, applyOp func(interface{}), speed float64) {
+func oplogReplay(ops []map[string]interface{}, applyOp func(interface{}) error, speed float64) error {
 	if speed == -1 {
 		for _, op := range ops {
 			if err := applyOp(op); err != nil {
@@ -58,8 +58,11 @@ func oplogReplay(ops []map[string]interface{}, applyOp func(interface{}), speed 
 			time.Sleep(time.Duration(10) * time.Millisecond)
 		}
 
-		applyOp(op)
+		if err := applyOp(op); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
 func main() {
@@ -79,14 +82,17 @@ func main() {
 	}
 	defer session.Close()
 
-	applyOp := func(op interface{}) {
+	applyOp := func(op interface{}) error {
 		var result interface{}
 		if err := session.Run(bson.M{"applyOps": []interface{}{op}}, &result); err != nil {
-			panic(err)
+			return err
 		}
+		return nil
 	}
 
-	oplogReplay(ops, applyOp, *speed)
+	if err := oplogReplay(ops, applyOp, *speed); err != nil {
+		panic(err)
+	}
 
 	fmt.Printf("Done! Read %d ops\n", len(ops))
 }

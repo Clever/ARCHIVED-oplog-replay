@@ -45,7 +45,7 @@ func TestOplogReplay(t *testing.T) {
 	nextExpectedOp := 1
 
 	startTime := time.Now()
-	applyOp := func(op interface{}) {
+	applyOp := func(op interface{}) error {
 		if !reflect.DeepEqual(ops[nextExpectedOp], op) {
 			t.Fatalf("Expected op: %#v, got: %#v\n", ops[nextExpectedOp], ops)
 		}
@@ -55,6 +55,7 @@ func TestOplogReplay(t *testing.T) {
 			t.Fatalf("Got correct op, but expected it after %v second(s). Got it after %v second(s).\n", expectedTimes[nextExpectedOp], receivedTime)
 		}
 		nextExpectedOp++
+		return nil
 	}
 
 	oplogReplay(ops, applyOp, 1)
@@ -74,12 +75,13 @@ func TestOplogReplaySpeed(t *testing.T) {
 	nextExpectedOp := 0
 
 	startTime := time.Now()
-	applyOp := func(op interface{}) {
+	applyOp := func(op interface{}) error {
 		receivedTime := int(math.Floor(time.Now().Sub(startTime).Seconds() + 0.5))
 		if receivedTime != expectedTimes[nextExpectedOp] {
 			t.Fatalf("Got correct op, but expected it after %v second(s). Got it after %v second(s).\n", expectedTimes[nextExpectedOp], receivedTime)
 		}
 		nextExpectedOp++
+		return nil
 	}
 
 	oplogReplay(ops, applyOp, 5)

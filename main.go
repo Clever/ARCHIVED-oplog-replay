@@ -1,8 +1,6 @@
 package main
 
 import (
-	// "bytes"
-	// "encoding/binary"
 	"flag"
 	"fmt"
 	bsonScanner "github.com/Clever/oplog-replay/bson"
@@ -10,6 +8,7 @@ import (
 	"labix.org/v2/mgo"
 	"labix.org/v2/mgo/bson"
 	"os"
+	"sync"
 	"time"
 )
 
@@ -32,35 +31,55 @@ func parseBSON(r io.Reader) ([]map[string]interface{}, error) {
 }
 
 func oplogReplay(ops []map[string]interface{}, applyOp func(interface{}) error, speed float64) error {
+	timedOps := make(chan map[string]interface{})
+	errors := make(chan error)
+	wg := sync.WaitGroup{}
+	concurrency := 100
+	for i := 0; i < concurrency; i++ {
+		go func(i int) {
+			for op := range timedOps {
+				// println("applying op in goroutine", i, op["ns"].(string))
+				if err := applyOp(op); err != nil {
+					errors <- err
+				}
+				wg.Done()
+			}
+		}(i)
+	}
 	if speed == -1 {
 		for _, op := range ops {
-			if err := applyOp(op); err != nil {
-				return err
+			wg.Add(1)
+			timedOps <- op
+		}
+		close(timedOps)
+	} else {
+		logStartTime := -1
+		replayStartTime := time.Now()
+		for _, op := range ops {
+			if op["ns"] == "" {
+				// Can't apply ops without a db name
+				continue
 			}
+
+			eventTime := int((op["ts"].(bson.MongoTimestamp)) >> 32)
+
+			if logStartTime == -1 {
+				logStartTime = eventTime
+			}
+
+			for time.Now().Sub(replayStartTime).Seconds()*speed < float64(eventTime-logStartTime) {
+				time.Sleep(time.Duration(10) * time.Millisecond)
+			}
+
+			wg.Add(1)
+			timedOps <- op
 		}
-		return nil
+		close(timedOps)
 	}
-	logStartTime := -1
-	replayStartTime := time.Now()
-	for _, op := range ops {
-		if op["ns"] == "" {
-			// Can't apply ops without a db name
-			continue
-		}
-
-		eventTime := int((op["ts"].(bson.MongoTimestamp)) >> 32)
-
-		if logStartTime == -1 {
-			logStartTime = eventTime
-		}
-
-		for time.Now().Sub(replayStartTime).Seconds()*speed < float64(eventTime-logStartTime) {
-			time.Sleep(time.Duration(10) * time.Millisecond)
-		}
-
-		if err := applyOp(op); err != nil {
-			return err
-		}
+	wg.Wait()
+	close(errors)
+	for err := range errors {
+		return err
 	}
 	return nil
 }

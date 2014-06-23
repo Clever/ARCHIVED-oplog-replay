@@ -31,7 +31,15 @@ func parseBSON(r io.Reader) ([]map[string]interface{}, error) {
 	return ops, nil
 }
 
-func oplogReplay(ops []map[string]interface{}, applyOp func(interface{}), speed float64) {
+func oplogReplay(ops []map[string]interface{}, applyOp func(interface{}) error, speed float64) error {
+	if speed == -1 {
+		for _, op := range ops {
+			if err := applyOp(op); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
 	logStartTime := -1
 	replayStartTime := time.Now()
 	for _, op := range ops {
@@ -50,8 +58,11 @@ func oplogReplay(ops []map[string]interface{}, applyOp func(interface{}), speed 
 			time.Sleep(time.Duration(10) * time.Millisecond)
 		}
 
-		applyOp(op)
+		if err := applyOp(op); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
 func main() {
@@ -59,26 +70,31 @@ func main() {
 	host := flag.String("host", "localhost", "Mongo host to playback onto.")
 	flag.Parse()
 
+	fmt.Println("Parsing BSON...")
+	ops, err := parseBSON(os.Stdin)
+	if err != nil {
+		panic(err)
+	}
+
 	session, err := mgo.Dial(*host)
 	if err != nil {
 		panic(err)
 	}
 	defer session.Close()
 
-	fmt.Println("Starting playback...")
-	ops, err := parseBSON(os.Stdin)
-	if err != nil {
+	applyOp := func(op interface{}) error {
+		var result interface{}
+		session.Refresh()
+		if err := session.Run(bson.M{"applyOps": []interface{}{op}}, &result); err != nil {
+			return err
+		}
+		return nil
+	}
+
+	fmt.Println("Begin replaying...")
+	if err := oplogReplay(ops, applyOp, *speed); err != nil {
 		panic(err)
 	}
 
-	applyOp := func(op interface{}) {
-		var result interface{}
-		if err := session.Run(bson.M{"applyOps": []interface{}{op}}, &result); err != nil {
-			panic(err)
-		}
-	}
-
-	oplogReplay(ops, applyOp, *speed)
-
-	fmt.Printf("Done! Read %d ops\n", len(ops))
+	fmt.Printf("Done! Replayed %d ops\n", len(ops))
 }

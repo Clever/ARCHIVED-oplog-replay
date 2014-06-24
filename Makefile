@@ -1,5 +1,6 @@
 SHELL := /bin/bash
 PKG := github.com/Clever/oplog-replay
+SUBPKGS := github.com/Clever/oplog-replay/bson
 PKGS = $(PKG) $(SUBPKGS)
 
 .PHONY: test golint README

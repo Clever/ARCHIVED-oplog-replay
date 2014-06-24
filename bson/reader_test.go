@@ -18,7 +18,9 @@ func TestParseBSON(t *testing.T) {
 	}
 
 	f, err := os.Open("./testdata.bson")
-	t.Log(err)
+	if err != nil {
+		t.Fatal("Got error", err)
+	}
 	defer f.Close()
 
 	nextOpIndex := 0

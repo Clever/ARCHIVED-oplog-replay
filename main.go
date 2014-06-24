@@ -33,20 +33,24 @@ func oplogReplay(ops chan map[string]interface{}, applyOp func(interface{}) erro
 	errors := make(chan error)
 	wg := sync.WaitGroup{}
 	concurrency := 100
-	for i := 0; i < concurrency; i++ {
-		go func(i int) {
-			for op := range timedOps {
-				// println("applying op in goroutine", i, op["ns"].(string))
-				if err := applyOp(op); err != nil {
-					errors <- err
+	go func() {
+		for i := 0; i < concurrency; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for op := range timedOps {
+					if err := applyOp(op); err != nil {
+						errors <- err
+					}
 				}
-				wg.Done()
-			}
-		}(i)
-	}
+
+			}()
+		}
+		wg.Wait()
+		close(errors)
+	}()
 	if speed == -1 {
 		for op := range ops {
-			wg.Add(1)
 			timedOps <- op
 		}
 		close(timedOps)
@@ -69,13 +73,10 @@ func oplogReplay(ops chan map[string]interface{}, applyOp func(interface{}) erro
 				time.Sleep(time.Duration(10) * time.Millisecond)
 			}
 
-			wg.Add(1)
 			timedOps <- op
 		}
 		close(timedOps)
 	}
-	wg.Wait()
-	close(errors)
 	for err := range errors {
 		return err
 	}

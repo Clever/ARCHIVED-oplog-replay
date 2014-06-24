@@ -22,3 +22,13 @@ flag      | default     | description
 :-------: | :---------: | :---------:
 `--speed` | `1`         | Multiplier for playback speed.
 `--host`  | `localhost` | Host that the oplog will be replayed against.
+
+
+Getting an Oplog
+----------------
+
+You can get an oplog dump by specifying the collection directly:
+
+`mongodump --db local --collection oplog.rs`
+
+A `--query` flag can be specified to get only certain oplog entries.

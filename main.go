@@ -7,6 +7,7 @@ import (
 	"io"
 	"labix.org/v2/mgo"
 	"labix.org/v2/mgo/bson"
+	"math"
 	"os"
 	"sync"
 	"time"
@@ -49,34 +50,27 @@ func oplogReplay(ops chan map[string]interface{}, applyOp func(interface{}) erro
 		wg.Wait()
 		close(errors)
 	}()
-	if speed == -1 {
-		for op := range ops {
-			timedOps <- op
+	logStartTime := -1
+	replayStartTime := time.Now()
+	for op := range ops {
+		if op["ns"] == "" {
+			// Can't apply ops without a db name
+			continue
 		}
-		close(timedOps)
-	} else {
-		logStartTime := -1
-		replayStartTime := time.Now()
-		for op := range ops {
-			if op["ns"] == "" {
-				// Can't apply ops without a db name
-				continue
-			}
 
-			eventTime := int((op["ts"].(bson.MongoTimestamp)) >> 32)
+		eventTime := int((op["ts"].(bson.MongoTimestamp)) >> 32)
 
-			if logStartTime == -1 {
-				logStartTime = eventTime
-			}
-
-			for time.Now().Sub(replayStartTime).Seconds()*speed < float64(eventTime-logStartTime) {
-				time.Sleep(time.Duration(10) * time.Millisecond)
-			}
-
-			timedOps <- op
+		if logStartTime == -1 {
+			logStartTime = eventTime
 		}
-		close(timedOps)
+
+		for time.Now().Sub(replayStartTime).Seconds()*speed < float64(eventTime-logStartTime) {
+			time.Sleep(time.Duration(10) * time.Millisecond)
+		}
+
+		timedOps <- op
 	}
+	close(timedOps)
 	for err := range errors {
 		return err
 	}
@@ -108,6 +102,10 @@ func main() {
 	}
 
 	fmt.Println("Begin replaying...")
+
+	if *speed == -1 {
+		*speed = math.Inf(1)
+	}
 	if err := oplogReplay(opChannel, applyOp, *speed); err != nil {
 		panic(err)
 	}

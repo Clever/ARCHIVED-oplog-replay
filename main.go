@@ -1,48 +1,47 @@
 package main
 
 import (
-	// "bytes"
-	// "encoding/binary"
 	"flag"
 	"fmt"
 	bsonScanner "github.com/Clever/oplog-replay/bson"
 	"io"
 	"labix.org/v2/mgo"
 	"labix.org/v2/mgo/bson"
+	"math"
 	"os"
 	"time"
 )
 
-func parseBSON(r io.Reader) ([]map[string]interface{}, error) {
-
-	ops := []map[string]interface{}{}
+func parseBSON(r io.Reader, opChannel chan map[string]interface{}) {
+	defer close(opChannel)
 
 	scanner := bsonScanner.New(r)
 	for scanner.Scan() {
 		op := map[string]interface{}{}
 		if err := bson.Unmarshal(scanner.Bytes(), &op); err != nil {
-			return nil, err
+			panic(err)
 		}
-		ops = append(ops, op)
+		opChannel <- op
 	}
 	if scanner.Err() != nil {
-		return nil, scanner.Err()
+		panic(scanner.Err())
 	}
-	return ops, nil
 }
 
-func oplogReplay(ops []map[string]interface{}, applyOp func(interface{}) error, speed float64) error {
-	if speed == -1 {
-		for _, op := range ops {
+func oplogReplay(ops chan map[string]interface{}, applyOp func(interface{}) error, speed float64) error {
+	timedOps := make(chan map[string]interface{})
+	errors := make(chan error)
+	go func() {
+		defer close(errors)
+		for op := range timedOps {
 			if err := applyOp(op); err != nil {
-				return err
+				errors <- err
 			}
 		}
-		return nil
-	}
+	}()
 	logStartTime := -1
 	replayStartTime := time.Now()
-	for _, op := range ops {
+	for op := range ops {
 		if op["ns"] == "" {
 			// Can't apply ops without a db name
 			continue
@@ -58,9 +57,11 @@ func oplogReplay(ops []map[string]interface{}, applyOp func(interface{}) error, 
 			time.Sleep(time.Duration(10) * time.Millisecond)
 		}
 
-		if err := applyOp(op); err != nil {
-			return err
-		}
+		timedOps <- op
+	}
+	close(timedOps)
+	for err := range errors {
+		return err
 	}
 	return nil
 }
@@ -71,10 +72,8 @@ func main() {
 	flag.Parse()
 
 	fmt.Println("Parsing BSON...")
-	ops, err := parseBSON(os.Stdin)
-	if err != nil {
-		panic(err)
-	}
+	opChannel := make(chan map[string]interface{})
+	go parseBSON(os.Stdin, opChannel)
 
 	session, err := mgo.Dial(*host)
 	if err != nil {
@@ -92,9 +91,13 @@ func main() {
 	}
 
 	fmt.Println("Begin replaying...")
-	if err := oplogReplay(ops, applyOp, *speed); err != nil {
+
+	if *speed == -1 {
+		*speed = math.Inf(1)
+	}
+	if err := oplogReplay(opChannel, applyOp, *speed); err != nil {
 		panic(err)
 	}
 
-	fmt.Printf("Done! Replayed %d ops\n", len(ops))
+	fmt.Println("Done!")
 }

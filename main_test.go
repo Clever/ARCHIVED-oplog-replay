@@ -36,7 +36,14 @@ func TestOplogReplay(t *testing.T) {
 		return nil
 	}
 
-	oplogReplay(ops, applyOp, 1)
+	opChannel := make(chan map[string]interface{})
+	go func() {
+		for _, op := range ops {
+			opChannel <- op
+		}
+		close(opChannel)
+	}()
+	oplogReplay(opChannel, applyOp, 1)
 
 	if nextExpectedOp-1 != 5 {
 		t.Fatalf("Did not get all ops, expected 5, got %v\n", nextExpectedOp-1)
@@ -62,5 +69,12 @@ func TestOplogReplaySpeed(t *testing.T) {
 		return nil
 	}
 
-	oplogReplay(ops, applyOp, 5)
+	opChannel := make(chan map[string]interface{})
+	go func() {
+		for _, op := range ops {
+			opChannel <- op
+		}
+		close(opChannel)
+	}()
+	oplogReplay(opChannel, applyOp, 5)
 }

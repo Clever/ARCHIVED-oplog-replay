@@ -9,7 +9,6 @@ import (
 	"labix.org/v2/mgo/bson"
 	"math"
 	"os"
-	"sync"
 	"time"
 )
 
@@ -32,23 +31,13 @@ func parseBSON(r io.Reader, opChannel chan map[string]interface{}) {
 func oplogReplay(ops chan map[string]interface{}, applyOp func(interface{}) error, speed float64) error {
 	timedOps := make(chan map[string]interface{})
 	errors := make(chan error)
-	wg := sync.WaitGroup{}
-	concurrency := 100
 	go func() {
-		for i := 0; i < concurrency; i++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				for op := range timedOps {
-					if err := applyOp(op); err != nil {
-						errors <- err
-					}
-				}
-
-			}()
+		defer close(errors)
+		for op := range timedOps {
+			if err := applyOp(op); err != nil {
+				errors <- err
+			}
 		}
-		wg.Wait()
-		close(errors)
 	}()
 	logStartTime := -1
 	replayStartTime := time.Now()

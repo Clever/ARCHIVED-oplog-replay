@@ -1,11 +1,12 @@
-package main
+package replay
 
 import (
-	"labix.org/v2/mgo/bson"
 	"math"
 	"reflect"
 	"testing"
 	"time"
+
+	"labix.org/v2/mgo/bson"
 )
 
 func TestOplogReplay(t *testing.T) {

@@ -1,9 +1,18 @@
 SHELL := /bin/bash
-PKG := github.com/Clever/oplog-replay
-SUBPKGS := github.com/Clever/oplog-replay/bson
-PKGS = $(PKG) $(SUBPKGS)
+PKGS := \
+github.com/Clever/oplog-replay/replay \
+github.com/Clever/oplog-replay/bson \
+github.com/Clever/oplog-replay/cmd
 
 .PHONY: test golint README
+
+all: build
+
+build:
+	go build -o bin/oplog-replay "github.com/Clever/oplog-replay/cmd"
+
+clean:
+	rm bin/*
 
 test: $(PKGS)
 

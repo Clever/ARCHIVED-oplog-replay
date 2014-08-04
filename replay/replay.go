@@ -1,43 +1,49 @@
-package main
+package replay
 
 import (
-	"flag"
 	"fmt"
-	bsonScanner "github.com/Clever/oplog-replay/bson"
 	"io"
+	"math"
+
+	bsonScanner "github.com/Clever/oplog-replay/bson"
 	"labix.org/v2/mgo"
 	"labix.org/v2/mgo/bson"
-	"math"
-	"os"
+
 	"time"
 )
 
-func parseBSON(r io.Reader, opChannel chan map[string]interface{}) {
+// ParseBSON parses the bson from the Reader interface. It writes each operation to the opChannel.
+// If there are any errors it closes the opChannel are returns immediately.
+func parseBSON(r io.Reader, opChannel chan map[string]interface{}) error {
 	defer close(opChannel)
 
 	scanner := bsonScanner.New(r)
 	for scanner.Scan() {
 		op := map[string]interface{}{}
 		if err := bson.Unmarshal(scanner.Bytes(), &op); err != nil {
-			panic(err)
+			return err
 		}
 		opChannel <- op
 	}
 	if scanner.Err() != nil {
-		panic(scanner.Err())
+		return scanner.Err()
 	}
+	return nil
 }
 
 func oplogReplay(ops chan map[string]interface{}, applyOp func(interface{}) error, speed float64) error {
 	timedOps := make(chan map[string]interface{})
-	errors := make(chan error)
+	// Run a goroutine that applies the ops. If there are any errors in application this returns immediately.
+	// It sets the timedOpsReturnVal channel with the error response.
+	timedOpsReturnVal := make(chan error, 1)
 	go func() {
-		defer close(errors)
 		for op := range timedOps {
 			if err := applyOp(op); err != nil {
-				errors <- err
+				timedOpsReturnVal <- err
+				return
 			}
 		}
+		timedOpsReturnVal <- nil
 	}()
 	logStartTime := -1
 	replayStartTime := time.Now()
@@ -60,24 +66,20 @@ func oplogReplay(ops chan map[string]interface{}, applyOp func(interface{}) erro
 		timedOps <- op
 	}
 	close(timedOps)
-	for err := range errors {
-		return err
-	}
-	return nil
+	return <-timedOpsReturnVal
 }
 
-func main() {
-	speed := flag.Float64("speed", 1, "Sets multiplier for playback speed.")
-	host := flag.String("host", "localhost", "Mongo host to playback onto.")
-	flag.Parse()
-
+// ReplayOplog replays an oplog onto the specified host
+func ReplayOplog(r io.Reader, speed float64, host string) error {
 	fmt.Println("Parsing BSON...")
 	opChannel := make(chan map[string]interface{})
-	go parseBSON(os.Stdin, opChannel)
-
-	session, err := mgo.Dial(*host)
+	parseBSONReturnVal := make(chan error, 1)
+	go func() {
+		parseBSONReturnVal <- parseBSON(r, opChannel)
+	}()
+	session, err := mgo.Dial(host)
 	if err != nil {
-		panic(err)
+		return err
 	}
 	defer session.Close()
 
@@ -92,12 +94,12 @@ func main() {
 
 	fmt.Println("Begin replaying...")
 
-	if *speed == -1 {
-		*speed = math.Inf(1)
+	if speed == -1 {
+		speed = math.Inf(1)
 	}
-	if err := oplogReplay(opChannel, applyOp, *speed); err != nil {
-		panic(err)
+	err = oplogReplay(opChannel, applyOp, speed)
+	if err != nil {
+		return err
 	}
-
-	fmt.Println("Done!")
+	return <-parseBSONReturnVal
 }

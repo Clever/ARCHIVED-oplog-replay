@@ -2,14 +2,14 @@ SHELL := /bin/bash
 PKGS := \
 github.com/Clever/oplog-replay/replay \
 github.com/Clever/oplog-replay/bson \
-github.com/Clever/oplog-replay/cmd
+github.com/Clever/oplog-replay/cmd/oplog-replay
 
 .PHONY: test golint README
 
 all: build
 
 build:
-	go build -o bin/oplog-replay "github.com/Clever/oplog-replay/cmd"
+	go build -o bin/oplog-replay "github.com/Clever/oplog-replay/cmd/oplog-replay"
 
 clean:
 	rm bin/*

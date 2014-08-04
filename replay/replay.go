@@ -13,7 +13,7 @@ import (
 )
 
 // ParseBSON parses the bson from the Reader interface. It writes each operation to the opChannel.
-// If there are any errors it closes the opChannel are returns immediately.
+// If there are any errors it closes the opChannel and returns immediately.
 func parseBSON(r io.Reader, opChannel chan map[string]interface{}) error {
 	defer close(opChannel)
 
@@ -35,7 +35,7 @@ func oplogReplay(ops chan map[string]interface{}, applyOp func(interface{}) erro
 	timedOps := make(chan map[string]interface{})
 	// Run a goroutine that applies the ops. If there are any errors in application this returns immediately.
 	// It sets the timedOpsReturnVal channel with the error response.
-	timedOpsReturnVal := make(chan error, 1)
+	timedOpsReturnVal := make(chan error)
 	go func() {
 		for op := range timedOps {
 			if err := applyOp(op); err != nil {
@@ -66,14 +66,17 @@ func oplogReplay(ops chan map[string]interface{}, applyOp func(interface{}) erro
 		timedOps <- op
 	}
 	close(timedOps)
-	return <-timedOpsReturnVal
+	returnVal := <-timedOpsReturnVal
+	close(timedOpsReturnVal)
+	return returnVal
 }
 
-// ReplayOplog replays an oplog onto the specified host
+// ReplayOplog replays an oplog onto the specified host. If there are any errors this function
+// terminates and returns the error immediately.
 func ReplayOplog(r io.Reader, speed float64, host string) error {
 	fmt.Println("Parsing BSON...")
 	opChannel := make(chan map[string]interface{})
-	parseBSONReturnVal := make(chan error, 1)
+	parseBSONReturnVal := make(chan error)
 	go func() {
 		parseBSONReturnVal <- parseBSON(r, opChannel)
 	}()
@@ -97,9 +100,10 @@ func ReplayOplog(r io.Reader, speed float64, host string) error {
 	if speed == -1 {
 		speed = math.Inf(1)
 	}
-	err = oplogReplay(opChannel, applyOp, speed)
-	if err != nil {
+	if err = oplogReplay(opChannel, applyOp, speed); err != nil {
 		return err
 	}
-	return <-parseBSONReturnVal
+	retVal := <-parseBSONReturnVal
+	close(parseBSONReturnVal)
+	return retVal
 }

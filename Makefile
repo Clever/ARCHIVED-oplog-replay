@@ -10,6 +10,7 @@ all: build
 
 build:
 	go build -o bin/oplog-replay "github.com/Clever/oplog-replay/cmd/oplog-replay"
+	go biuld -o bin/oplog-replay-worker "github.com/Clever/oplog-replay/cmd/oplog-replay-worker"
 
 clean:
 	rm bin/*

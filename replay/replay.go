@@ -12,6 +12,19 @@ import (
 	"time"
 )
 
+type OplogReplayer interface {
+	ReplayOplog(r io.Reader, speed float64, host string) error
+}
+
+// Empty struct because we don't need to maintain any state
+type replayer struct {
+}
+
+// TODO: Add nice comment...
+func New() OplogReplayer {
+	return &replayer{}
+}
+
 // ParseBSON parses the bson from the Reader interface. It writes each operation to the opChannel.
 // If there are any errors it closes the opChannel and returns immediately.
 func parseBSON(r io.Reader, opChannel chan map[string]interface{}) error {
@@ -73,7 +86,7 @@ func oplogReplay(ops chan map[string]interface{}, applyOp func(interface{}) erro
 
 // ReplayOplog replays an oplog onto the specified host. If there are any errors this function
 // terminates and returns the error immediately.
-func ReplayOplog(r io.Reader, speed float64, host string) error {
+func (replayer *replayer) ReplayOplog(r io.Reader, speed float64, host string) error {
 	fmt.Println("Parsing BSON...")
 	opChannel := make(chan map[string]interface{})
 	parseBSONReturnVal := make(chan error)

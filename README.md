@@ -1,7 +1,7 @@
 Oplog Replay
 ============
 
-A library and a binary for replaying MongoDB oplogs at a multiple of the original speed. Useful for stress testing databases using real world data.
+A library, binary, and worker for replaying MongoDB oplogs at a multiple of the original speed. Useful for stress testing databases using real world data.
 
 Usage as a binary
 -----------------
@@ -23,6 +23,11 @@ flag      | default     | description
 `--speed` | `1`         | Multiplier for playback speed.
 `--host`  | `localhost` | Host that the oplog will be replayed against.
 
+
+Usage as a worker
+-----------------
+
+TODO: Figure out what this should be
 
 Usage as a library
 ------------------

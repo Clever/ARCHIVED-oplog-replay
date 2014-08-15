@@ -31,9 +31,11 @@ func parseBSON(r io.Reader, opChannel chan map[string]interface{}) error {
 	return nil
 }
 
-// TODO: Add a nice comment!!! returns a list of elements and whether it's been closed
+// getAllElementsCurrentlyInChannel returns a slice of all the elements that can be retreived from the
+// channel without blocking. It also returns a boolean that's true if the channel has been closed.
 func getAllElementsCurrentlyInChannel(channel chan map[string]interface{}) ([]interface{}, bool) {
-	elements := make([]interface{}, 0)
+	var elements []interface{}
+	// In a loop grab as many elements as you can before you would block (the default case)
 	for {
 		select {
 		case elem, channelOpen := <-channel:
@@ -55,6 +57,8 @@ func oplogReplay(ops chan map[string]interface{}, applyOps func([]interface{}) e
 	// It sets the timedOpsReturnVal channel with the error response.
 	timedOpsReturnVal := make(chan error)
 	go func() {
+		// Repeatedly grab as many elements as possible from the channel. If there aren't any then sleep,
+		// otherwise apply them.
 		for {
 			opsToApply, closed := getAllElementsCurrentlyInChannel(timedOps)
 			if len(opsToApply) > 0 {

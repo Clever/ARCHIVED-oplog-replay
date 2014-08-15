@@ -1,7 +1,6 @@
 package replay
 
 import (
-	"errors"
 	"fmt"
 	"math"
 	"reflect"
@@ -29,11 +28,11 @@ func TestOplogReplay(t *testing.T) {
 	applyOps := func(opList []interface{}) error {
 		for _, op := range opList {
 			if !reflect.DeepEqual(ops[nextExpectedOp], op) {
-				return errors.New(fmt.Sprintf("Expected op: %#v, got: %#v\n", ops[nextExpectedOp], op))
+				return fmt.Errorf("Expected op: %#v, got: %#v\n", ops[nextExpectedOp], op)
 			}
 			receivedTime := int(math.Floor(time.Now().Sub(startTime).Seconds() + 0.5))
 			if receivedTime != expectedTimes[nextExpectedOp] {
-				t.Fatalf("Got correct op, but expected it after %v second(s). Got it after %v second(s).\n", expectedTimes[nextExpectedOp], receivedTime)
+				return fmt.Errorf("Got correct op, but expected it after %v second(s). Got it after %v second(s).\n", expectedTimes[nextExpectedOp], receivedTime)
 			}
 			nextExpectedOp++
 		}
@@ -71,7 +70,7 @@ func TestOplogReplaySpeed(t *testing.T) {
 		for _ = range ops {
 			receivedTime := int(math.Floor(time.Now().Sub(startTime).Seconds() + 0.5))
 			if receivedTime != expectedTimes[nextExpectedOp] {
-				errors.New(fmt.Sprintf("Got correct op, but expected it after %v second(s). Got it after %v second(s).\n", expectedTimes[nextExpectedOp], receivedTime))
+				fmt.Errorf("Got correct op, but expected it after %v second(s). Got it after %v second(s).\n", expectedTimes[nextExpectedOp], receivedTime)
 			}
 			nextExpectedOp++
 		}
@@ -97,6 +96,9 @@ func TestWillApplyInBatch(t *testing.T) {
 		map[string]interface{}{"ts": bson.MongoTimestamp(10 << 32), "h": 1002, "v": 2, "op": "i", "ns": "testdb.test", "o": map[string]interface{}{"some": "insert"}},
 	}
 
+	// This test makes sure that entries are being applied in batch. In particular it simulates
+	// the applyOps function taking a while by having it wait until the operation generator can
+	// push a bunch of new elements in the channel before returning from applying the op.
 	opLogGeneratorWaiter := make(chan bool)
 	applyOpsWaiter := make(chan bool)
 	firstApply := true
@@ -109,8 +111,10 @@ func TestWillApplyInBatch(t *testing.T) {
 			<-applyOpsWaiter
 			return nil
 		} else {
+			// It should try to apply two operations here because the channel put in
+			// two new elements before this completed the first time.
 			if len(ops) != 2 {
-				return errors.New(fmt.Sprintf("Expected 2 ops the second time, got %x", len(ops)))
+				return fmt.Errorf("Expected 2 ops the second time, got %x", len(ops))
 			}
 			return nil
 		}
@@ -119,10 +123,12 @@ func TestWillApplyInBatch(t *testing.T) {
 	opChannel := make(chan map[string]interface{})
 	go func() {
 		opChannel <- ops[0]
-		// TODO: Add a nice comment
+		// Wait for the applyOps function to process the first
 		<-opLogGeneratorWaiter
 		opChannel <- ops[1]
 		opChannel <- ops[2]
+		// Tell the applyOps function that it can finish the first apply now that there
+		// are two more operations in the channel.
 		applyOpsWaiter <- true
 		close(opChannel)
 	}()

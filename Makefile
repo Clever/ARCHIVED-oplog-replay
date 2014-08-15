@@ -2,7 +2,8 @@ SHELL := /bin/bash
 PKGS := \
 github.com/Clever/oplog-replay/replay \
 github.com/Clever/oplog-replay/bson \
-github.com/Clever/oplog-replay/cmd/oplog-replay
+github.com/Clever/oplog-replay/cmd/oplog-replay \
+github.com/Clever/oplog-replay/ratecontroller
 
 .PHONY: test golint README
 

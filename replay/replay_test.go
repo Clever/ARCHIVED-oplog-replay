@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Clever/oplog-replay/ratecontroller"
 	"labix.org/v2/mgo/bson"
 )
 
@@ -46,10 +47,11 @@ func TestOplogReplay(t *testing.T) {
 		}
 		close(opChannel)
 	}()
-	err := oplogReplay(opChannel, applyOps, 1)
+	controller, err := ratecontroller.New("relative", 1)
 	if err != nil {
-		t.Fatal(err.Error())
+		t.Fatal(err)
 	}
+	oplogReplay(opChannel, applyOp, controller)
 
 	if nextExpectedOp-1 != 5 {
 		t.Fatalf("Did not get all ops, expected 5, got %v\n", nextExpectedOp-1)
@@ -136,4 +138,9 @@ func TestWillApplyInBatch(t *testing.T) {
 	if err := oplogReplay(opChannel, applyOps, 100); err != nil {
 		t.Fatal(err.Error())
 	}
+	controller, err := ratecontroller.New("relative", 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oplogReplay(opChannel, applyOp, controller)
 }

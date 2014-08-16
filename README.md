@@ -18,16 +18,12 @@ Then run it and pipe in a bson file containing the oplog you want to replay:
 
 You can also specify the following flags:
 
-flag      | default     | description
-:-------: | :---------: | :---------:
-`--speed` | `1`         | Multiplier for playback speed.
-`--host`  | `localhost` | Host that the oplog will be replayed against.
-
-
-Usage as a worker
------------------
-
-TODO: Figure out what this should be
+flag       | default     | description
+:-------:  | :---------: | :---------:
+`--speed`  | `1`         | Multiplier for playback speed.
+`--host`   | `localhost` | Host that the oplog will be replayed against.
+`--s3path` | ''          | Read the bson file from the s3path instead of stdin.
+`--retries | '0'         | Retries the replay until it succeeds or this many times.
 
 Usage as a library
 ------------------

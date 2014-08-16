@@ -6,13 +6,11 @@ A library and a binary for replaying MongoDB oplogs at a multiple of the origina
 Usage as a Binary
 -----------------
 
-First build Oplog Replay with:
-
-`make build`
+`go get github.com/Clever/oplog-replay/cmd/replayoplog`
 
 Then run it and pipe in a bson file containing the oplog you want to replay:
 
-`./bin/oplog-replay < oplog.rs.bson`
+`$GOPATH/bin/replayoplog < oplog.rs.bson`
 
 -----
 

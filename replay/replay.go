@@ -20,7 +20,7 @@ type OplogReplayer interface {
 type replayer struct {
 }
 
-// TODO: Add nice comment...
+// New returns an OplogReplayer struct
 func New() OplogReplayer {
 	return &replayer{}
 }
@@ -86,7 +86,7 @@ func oplogReplay(ops chan map[string]interface{}, applyOp func(interface{}) erro
 
 // ReplayOplog replays an oplog onto the specified host. If there are any errors this function
 // terminates and returns the error immediately.
-func (replayer *replayer) ReplayOplog(r io.Reader, speed float64, host string) error {
+func (replayer *replayer) Replay(r io.Reader, speed float64, host string) error {
 	fmt.Println("Parsing BSON...")
 	opChannel := make(chan map[string]interface{})
 	parseBSONReturnVal := make(chan error)

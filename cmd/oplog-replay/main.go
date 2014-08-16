@@ -49,7 +49,7 @@ func doWork(replayer replay.OplogReplayer, reader io.Reader, host string, speed 
 	var err error
 	for i := 0; i < retries+1; i++ {
 		// If we succeeded in replaying the oplog then return no error
-		if err = replayer.ReplayOplog(reader, speed, host); err == nil {
+		if err = replayer.Replay(reader, speed, host); err == nil {
 			return nil
 		}
 	}

@@ -22,7 +22,7 @@ type MockReplayer struct {
 	timesCalled int
 }
 
-func (mock *MockReplayer) ReplayOplog(reader io.Reader, speed float64, host string) error {
+func (mock *MockReplayer) Replay(reader io.Reader, speed float64, host string) error {
 	mock.timesCalled++
 	if mock.timesToFail == 0 {
 		return nil

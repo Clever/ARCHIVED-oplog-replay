@@ -2,9 +2,10 @@ package bson
 
 import (
 	"fmt"
-	"labix.org/v2/mgo/bson"
 	"os"
 	"testing"
+
+	"labix.org/v2/mgo/bson"
 )
 
 func TestParseBSON(t *testing.T) {
@@ -36,8 +37,47 @@ func TestParseBSON(t *testing.T) {
 		}
 		nextOpIndex++
 	}
+	if scanner.Err() != nil {
+		t.Fatal("Scanner error", scanner.Err())
+	}
 
 	if nextOpIndex != 6 {
 		t.Fatal("Did not see all ops!", nextOpIndex)
 	}
+}
+
+func TestParseLargeBSON(t *testing.T) {
+	arraySize := 5000
+	largeArray := make([]interface{}, arraySize)
+	for i := 0; i < arraySize; i++ {
+		largeArray[i] = i
+	}
+	expectedOp := map[string]interface{}{
+		"ts": 6048257058866724865, "h": -6825742652110581687, "v": 2, "op": "i", "ns": "testdb.testdb", "o": map[string]interface{}{
+			"_id": "S\xef\xb9\xc0g\xfd\x924\x8e\x828`",
+			"val": largeArray}}
+
+	f, err := os.Open("./largetestdata.bson")
+	if err != nil {
+		t.Fatal("Error loading file", err)
+	}
+	defer f.Close()
+	foundExpectedOp := false
+	scanner := New(f)
+	for scanner.Scan() {
+		op := map[string]interface{}{}
+		if err := bson.Unmarshal(scanner.Bytes(), &op); err != nil {
+			t.Fatal("Error unmarshalling: ", err)
+		}
+		if fmt.Sprintf("%#v", op) == fmt.Sprintf("%#v", expectedOp) {
+			foundExpectedOp = true
+		}
+	}
+	if scanner.Err() != nil {
+		t.Fatal("Scanner error: ", scanner.Err())
+	}
+	if !foundExpectedOp {
+		t.Fatal("Didn't find the expected operation")
+	}
+
 }

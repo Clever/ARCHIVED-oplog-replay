@@ -3,16 +3,16 @@ Oplog Replay
 
 A library and a binary for replaying MongoDB oplogs at a multiple of the original speed. Useful for stress testing databases using real world data.
 
-Usage as a Binary
+Usage as a binary
 -----------------
 
-First build Oplog Replay with:
+First build Oplog Replay and put it on your GOPATH with:
 
-`make build`
+`go get github.com/Clever/oplog-replay/cmd`
 
 Then run it and pipe in a bson file containing the oplog you want to replay:
 
-`./bin/oplog-replay < oplog.rs.bson`
+`oplog-replay < oplog.rs.bson`
 
 -----
 
@@ -24,7 +24,7 @@ flag      | default     | description
 `--host`  | `localhost` | Host that the oplog will be replayed against.
 
 
-Usage as a Library
+Usage as a library
 ------------------
 
 Include it in your code: include "github.com/Clever/oplog-replay/replay"

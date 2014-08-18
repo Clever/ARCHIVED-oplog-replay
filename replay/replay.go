@@ -50,7 +50,7 @@ func getAllElementsCurrentlyInChannel(channel chan map[string]interface{}) ([]in
 	}
 }
 
-func oplogReplay(ops chan map[string]interface{}, applyOps func([]interface{}) error, speed float64) error {
+func oplogReplay(ops chan map[string]interface{}, applyOps func([]interface{}) error, controller ratecontroller.Controller) error {
 	// The choice of 20 for the maximum number of operations to apply at once is fairly arbitrary
 	timedOps := make(chan map[string]interface{}, 20)
 	// Run a goroutine that applies the ops. If there are any errors in application this returns immediately.
@@ -81,14 +81,7 @@ func oplogReplay(ops chan map[string]interface{}, applyOps func([]interface{}) e
 			// Can't apply ops without a db name
 			continue
 		}
-
-		// Sleep until we should apply the operation
-		for {
-			if controller.ShouldApplyOp(op) {
-				break
-			}
-			time.Sleep(time.Duration(1) * time.Millisecond)
-		}
+		time.Sleep(controller.WaitTime(op))
 		timedOps <- op
 	}
 	close(timedOps)

@@ -3,7 +3,9 @@ PKGS := \
 github.com/Clever/oplog-replay/replay \
 github.com/Clever/oplog-replay/bson \
 github.com/Clever/oplog-replay/cmd/oplog-replay \
-github.com/Clever/oplog-replay/ratecontroller
+github.com/Clever/oplog-replay/ratecontroller \
+github.com/Clever/oplog-replay/ratecontroller/fixed \
+github.com/Clever/oplog-replay/ratecontroller/relative
 
 .PHONY: test golint README
 

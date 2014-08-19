@@ -31,16 +31,47 @@ func parseBSON(r io.Reader, opChannel chan map[string]interface{}) error {
 	return nil
 }
 
-func oplogReplay(ops chan map[string]interface{}, applyOp func(interface{}) error, speed float64) error {
-	timedOps := make(chan map[string]interface{})
+// getAllElementsCurrentlyInChannel returns a slice of all the elements that can be retreived from the
+// channel without blocking. It also returns a boolean that's true if the channel has been closed.
+func getAllElementsCurrentlyInChannel(channel chan map[string]interface{}) ([]interface{}, bool) {
+	var elements []interface{}
+	// In a loop grab as many elements as you can before you would block (the default case)
+	for {
+		select {
+		case elem, channelOpen := <-channel:
+			if !channelOpen {
+				return elements, true
+			}
+			elements = append(elements, elem)
+		default:
+			// In this case there are no more elements in the channel and it hasn't been closed
+			return elements, false
+		}
+	}
+}
+
+func oplogReplay(ops chan map[string]interface{}, applyOps func([]interface{}) error, speed float64) error {
+	// The choice of 20 for the maximum number of operations to apply at once is fairly arbitrary
+	timedOps := make(chan map[string]interface{}, 20)
 	// Run a goroutine that applies the ops. If there are any errors in application this returns immediately.
 	// It sets the timedOpsReturnVal channel with the error response.
 	timedOpsReturnVal := make(chan error)
 	go func() {
-		for op := range timedOps {
-			if err := applyOp(op); err != nil {
-				timedOpsReturnVal <- err
-				return
+		// Repeatedly grab as many elements as possible from the channel. If there aren't any then sleep,
+		// otherwise apply them.
+		for {
+			opsToApply, closed := getAllElementsCurrentlyInChannel(timedOps)
+			if len(opsToApply) > 0 {
+				if err := applyOps(opsToApply); err != nil {
+					timedOpsReturnVal <- err
+					return
+				}
+			}
+			if closed {
+				break
+			}
+			if len(opsToApply) == 0 {
+				time.Sleep(time.Duration(1) * time.Millisecond)
 			}
 		}
 		timedOpsReturnVal <- nil
@@ -86,10 +117,10 @@ func ReplayOplog(r io.Reader, speed float64, host string) error {
 	}
 	defer session.Close()
 
-	applyOp := func(op interface{}) error {
+	applyOps := func(ops []interface{}) error {
 		var result interface{}
 		session.Refresh()
-		if err := session.Run(bson.M{"applyOps": []interface{}{op}}, &result); err != nil {
+		if err := session.Run(bson.M{"applyOps": ops}, &result); err != nil {
 			return err
 		}
 		return nil
@@ -100,7 +131,7 @@ func ReplayOplog(r io.Reader, speed float64, host string) error {
 	if speed == -1 {
 		speed = math.Inf(1)
 	}
-	if err = oplogReplay(opChannel, applyOp, speed); err != nil {
+	if err = oplogReplay(opChannel, applyOps, speed); err != nil {
 		return err
 	}
 	retVal := <-parseBSONReturnVal

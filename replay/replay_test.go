@@ -1,6 +1,7 @@
 package replay
 
 import (
+	"fmt"
 	"math"
 	"reflect"
 	"testing"
@@ -24,16 +25,17 @@ func TestOplogReplay(t *testing.T) {
 	nextExpectedOp := 1
 
 	startTime := time.Now()
-	applyOp := func(op interface{}) error {
-		if !reflect.DeepEqual(ops[nextExpectedOp], op) {
-			t.Fatalf("Expected op: %#v, got: %#v\n", ops[nextExpectedOp], ops)
+	applyOps := func(opList []interface{}) error {
+		for _, op := range opList {
+			if !reflect.DeepEqual(ops[nextExpectedOp], op) {
+				return fmt.Errorf("Expected op: %#v, got: %#v\n", ops[nextExpectedOp], op)
+			}
+			receivedTime := int(math.Floor(time.Now().Sub(startTime).Seconds() + 0.5))
+			if receivedTime != expectedTimes[nextExpectedOp] {
+				return fmt.Errorf("Got correct op, but expected it after %v second(s). Got it after %v second(s).\n", expectedTimes[nextExpectedOp], receivedTime)
+			}
+			nextExpectedOp++
 		}
-
-		receivedTime := int(math.Floor(time.Now().Sub(startTime).Seconds() + 0.5))
-		if receivedTime != expectedTimes[nextExpectedOp] {
-			t.Fatalf("Got correct op, but expected it after %v second(s). Got it after %v second(s).\n", expectedTimes[nextExpectedOp], receivedTime)
-		}
-		nextExpectedOp++
 		return nil
 	}
 
@@ -44,7 +46,10 @@ func TestOplogReplay(t *testing.T) {
 		}
 		close(opChannel)
 	}()
-	oplogReplay(opChannel, applyOp, 1)
+	err := oplogReplay(opChannel, applyOps, 1)
+	if err != nil {
+		t.Fatal(err.Error())
+	}
 
 	if nextExpectedOp-1 != 5 {
 		t.Fatalf("Did not get all ops, expected 5, got %v\n", nextExpectedOp-1)
@@ -61,12 +66,14 @@ func TestOplogReplaySpeed(t *testing.T) {
 	nextExpectedOp := 0
 
 	startTime := time.Now()
-	applyOp := func(op interface{}) error {
-		receivedTime := int(math.Floor(time.Now().Sub(startTime).Seconds() + 0.5))
-		if receivedTime != expectedTimes[nextExpectedOp] {
-			t.Fatalf("Got correct op, but expected it after %v second(s). Got it after %v second(s).\n", expectedTimes[nextExpectedOp], receivedTime)
+	applyOps := func(ops []interface{}) error {
+		for _ = range ops {
+			receivedTime := int(math.Floor(time.Now().Sub(startTime).Seconds() + 0.5))
+			if receivedTime != expectedTimes[nextExpectedOp] {
+				fmt.Errorf("Got correct op, but expected it after %v second(s). Got it after %v second(s).\n", expectedTimes[nextExpectedOp], receivedTime)
+			}
+			nextExpectedOp++
 		}
-		nextExpectedOp++
 		return nil
 	}
 
@@ -77,5 +84,56 @@ func TestOplogReplaySpeed(t *testing.T) {
 		}
 		close(opChannel)
 	}()
-	oplogReplay(opChannel, applyOp, 5)
+	if err := oplogReplay(opChannel, applyOps, 5); err != nil {
+		t.Fatalf(err.Error())
+	}
+}
+
+func TestWillApplyInBatch(t *testing.T) {
+	ops := []map[string]interface{}{
+		map[string]interface{}{"ts": bson.MongoTimestamp(0 << 32), "h": 1000, "v": 2, "op": "i", "ns": "testdb.test", "o": map[string]interface{}{"some": "insert"}},
+		map[string]interface{}{"ts": bson.MongoTimestamp(10 << 32), "h": 1001, "v": 2, "op": "i", "ns": "testdb.test", "o": map[string]interface{}{"some": "insert"}},
+		map[string]interface{}{"ts": bson.MongoTimestamp(10 << 32), "h": 1002, "v": 2, "op": "i", "ns": "testdb.test", "o": map[string]interface{}{"some": "insert"}},
+	}
+
+	// This test makes sure that entries are being applied in batch. In particular it simulates
+	// the applyOps function taking a while by having it wait until the operation generator can
+	// push a bunch of new elements in the channel before returning from applying the op.
+	opLogGeneratorWaiter := make(chan bool)
+	applyOpsWaiter := make(chan bool)
+	firstApply := true
+	applyOps := func(ops []interface{}) error {
+		if firstApply {
+			firstApply = false
+			// Tell the oplog generator that it can make more
+			opLogGeneratorWaiter <- true
+			// Wait for a couple more to be added to the queue
+			<-applyOpsWaiter
+			return nil
+		} else {
+			// It should try to apply two operations here because the channel put in
+			// two new elements before this completed the first time.
+			if len(ops) != 2 {
+				return fmt.Errorf("Expected 2 ops the second time, got %x", len(ops))
+			}
+			return nil
+		}
+	}
+
+	opChannel := make(chan map[string]interface{})
+	go func() {
+		opChannel <- ops[0]
+		// Wait for the applyOps function to process the first
+		<-opLogGeneratorWaiter
+		opChannel <- ops[1]
+		opChannel <- ops[2]
+		// Tell the applyOps function that it can finish the first apply now that there
+		// are two more operations in the channel.
+		applyOpsWaiter <- true
+		close(opChannel)
+	}()
+
+	if err := oplogReplay(opChannel, applyOps, 100); err != nil {
+		t.Fatal(err.Error())
+	}
 }

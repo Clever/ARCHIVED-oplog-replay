@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Clever/oplog-replay/ratecontroller/relative"
 	"labix.org/v2/mgo/bson"
 )
 
@@ -46,8 +47,7 @@ func TestOplogReplay(t *testing.T) {
 		}
 		close(opChannel)
 	}()
-	err := oplogReplay(opChannel, applyOps, 1)
-	if err != nil {
+	if err := oplogReplay(opChannel, applyOps, relative.New(1)); err != nil {
 		t.Fatal(err.Error())
 	}
 
@@ -84,7 +84,7 @@ func TestOplogReplaySpeed(t *testing.T) {
 		}
 		close(opChannel)
 	}()
-	if err := oplogReplay(opChannel, applyOps, 5); err != nil {
+	if err := oplogReplay(opChannel, applyOps, relative.New(5)); err != nil {
 		t.Fatalf(err.Error())
 	}
 }
@@ -133,7 +133,8 @@ func TestWillApplyInBatch(t *testing.T) {
 		close(opChannel)
 	}()
 
-	if err := oplogReplay(opChannel, applyOps, 100); err != nil {
+	if err := oplogReplay(opChannel, applyOps, relative.New(100)); err != nil {
 		t.Fatal(err.Error())
 	}
+	oplogReplay(opChannel, applyOps, relative.New(5))
 }

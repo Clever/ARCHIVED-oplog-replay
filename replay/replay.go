@@ -3,9 +3,9 @@ package replay
 import (
 	"fmt"
 	"io"
-	"math"
 
 	bsonScanner "github.com/Clever/oplog-replay/bson"
+	"github.com/Clever/oplog-replay/ratecontroller"
 	"labix.org/v2/mgo"
 	"labix.org/v2/mgo/bson"
 
@@ -50,7 +50,7 @@ func getAllElementsCurrentlyInChannel(channel chan map[string]interface{}) ([]in
 	}
 }
 
-func oplogReplay(ops chan map[string]interface{}, applyOps func([]interface{}) error, speed float64) error {
+func oplogReplay(ops chan map[string]interface{}, applyOps func([]interface{}) error, controller ratecontroller.Controller) error {
 	// The choice of 20 for the maximum number of operations to apply at once is fairly arbitrary
 	timedOps := make(chan map[string]interface{}, 20)
 	// Run a goroutine that applies the ops. If there are any errors in application this returns immediately.
@@ -76,24 +76,12 @@ func oplogReplay(ops chan map[string]interface{}, applyOps func([]interface{}) e
 		}
 		timedOpsReturnVal <- nil
 	}()
-	logStartTime := -1
-	replayStartTime := time.Now()
 	for op := range ops {
 		if op["ns"] == "" {
 			// Can't apply ops without a db name
 			continue
 		}
-
-		eventTime := int((op["ts"].(bson.MongoTimestamp)) >> 32)
-
-		if logStartTime == -1 {
-			logStartTime = eventTime
-		}
-
-		for time.Now().Sub(replayStartTime).Seconds()*speed < float64(eventTime-logStartTime) {
-			time.Sleep(time.Duration(10) * time.Millisecond)
-		}
-
+		time.Sleep(controller.WaitTime(op))
 		timedOps <- op
 	}
 	close(timedOps)
@@ -104,7 +92,8 @@ func oplogReplay(ops chan map[string]interface{}, applyOps func([]interface{}) e
 
 // ReplayOplog replays an oplog onto the specified host. If there are any errors this function
 // terminates and returns the error immediately.
-func ReplayOplog(r io.Reader, speed float64, host string) error {
+// ReplayOplog replays an oplog onto the specified host
+func ReplayOplog(r io.Reader, controller ratecontroller.Controller, host string) error {
 	fmt.Println("Parsing BSON...")
 	opChannel := make(chan map[string]interface{})
 	parseBSONReturnVal := make(chan error)
@@ -128,10 +117,7 @@ func ReplayOplog(r io.Reader, speed float64, host string) error {
 
 	fmt.Println("Begin replaying...")
 
-	if speed == -1 {
-		speed = math.Inf(1)
-	}
-	if err = oplogReplay(opChannel, applyOps, speed); err != nil {
+	if err := oplogReplay(opChannel, applyOps, controller); err != nil {
 		return err
 	}
 	retVal := <-parseBSONReturnVal

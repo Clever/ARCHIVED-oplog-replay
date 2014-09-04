@@ -22,7 +22,7 @@ flag      | default     | description
 :-------: | :---------: | :---------:
 `--speed` | `1`         | Multiplier for playback speed.
 `--host`  | `localhost` | Host that the oplog will be replayed against.
-
+`--path`  | `/dev/stdin` | Oplog file to replay
 
 Usage as a library
 ------------------

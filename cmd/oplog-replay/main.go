@@ -22,7 +22,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	input, err := pathio.ReaderForPath(*path)
+	input, err := pathio.Reader(*path)
 	if err != nil {
 		panic(err)
 	}

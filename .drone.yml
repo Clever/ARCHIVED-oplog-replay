@@ -11,3 +11,15 @@ notify:
     on_started: true
     on_success: true
     on_failure: true
+publish:
+  docker:
+    docker_port: 4243
+    docker_server: {{docker_server}}
+    docker_version: 1.2
+    email: {{docker_email}}
+    image_name: clever/oplog-replay
+    password: {{docker_password}}
+    push_latest: true
+    registry_login: true
+    username: {{docker_username}}
+    branch: master

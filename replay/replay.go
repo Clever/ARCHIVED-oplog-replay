@@ -1,8 +1,8 @@
 package replay
 
 import (
-	"fmt"
 	"io"
+	"log"
 
 	bsonScanner "github.com/Clever/oplog-replay/bson"
 	"github.com/Clever/oplog-replay/ratecontroller"
@@ -94,7 +94,7 @@ func oplogReplay(ops chan map[string]interface{}, applyOps func([]interface{}) e
 // terminates and returns the error immediately.
 // ReplayOplog replays an oplog onto the specified host
 func ReplayOplog(r io.Reader, controller ratecontroller.Controller, host string) error {
-	fmt.Println("Parsing BSON...")
+	log.Println("Parsing BSON...")
 	opChannel := make(chan map[string]interface{})
 	parseBSONReturnVal := make(chan error)
 	go func() {
@@ -115,7 +115,7 @@ func ReplayOplog(r io.Reader, controller ratecontroller.Controller, host string)
 		return nil
 	}
 
-	fmt.Println("Begin replaying...")
+	log.Println("Begin replaying...")
 
 	if err := oplogReplay(opChannel, applyOps, controller); err != nil {
 		return err

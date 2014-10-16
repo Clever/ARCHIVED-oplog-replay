@@ -1,6 +1,6 @@
 image: go1.2
 script:
-  - make test
+  - ./test_drone.sh
 services:
   - clever/mongo:2.4
 notify:

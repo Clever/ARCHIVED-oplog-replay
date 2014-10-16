@@ -1,6 +1,8 @@
 image: go1.2
 script:
   - make test
+services:
+  - clever/mongo:2.4
 notify:
   email:
     recipients:

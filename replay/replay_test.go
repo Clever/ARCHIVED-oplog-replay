@@ -3,11 +3,14 @@ package replay
 import (
 	"fmt"
 	"math"
+	"os"
 	"reflect"
 	"testing"
 	"time"
 
 	"github.com/Clever/oplog-replay/ratecontroller/relative"
+	"github.com/stretchr/testify/assert"
+	"labix.org/v2/mgo"
 	"labix.org/v2/mgo/bson"
 )
 
@@ -137,4 +140,84 @@ func TestWillApplyInBatch(t *testing.T) {
 		t.Fatal(err.Error())
 	}
 	oplogReplay(opChannel, applyOps, relative.New(5))
+}
+
+func setupTestDb(t *testing.T) (*mgo.Session, *mgo.Collection) {
+	mongoURL := os.Getenv("MONGO_URL")
+	if len(mongoURL) == 0 {
+		mongoURL = "localhost"
+	}
+	session, err := mgo.Dial(mongoURL)
+	assert.Nil(t, err)
+
+	replayTestDb := session.DB("testdb").C("replayTest")
+	replayTestDb.Remove(bson.M{"_id": "missingUpdate"})
+	replayTestDb.Remove(bson.M{"insertKey": "value"})
+
+	return session, replayTestDb
+}
+
+func getUpdateToNonExistentOp() map[string]interface{} {
+	return map[string]interface{}{"ts": bson.MongoTimestamp(15 << 32), "h": 1003, "v": 2, "op": "u", "ns": "testdb.replayTest", "o": map[string]interface{}{"some": "update"}, "o2": map[string]interface{}{"_id": "missingUpdate"}}
+}
+
+func getSuccessfulUpsertOp() map[string]interface{} {
+	return map[string]interface{}{"ts": bson.MongoTimestamp(15 << 32), "h": 1003, "v": 2, "op": "i", "ns": "testdb.replayTest", "o": map[string]interface{}{"insertKey": "value"}, "o2": map[string]interface{}{"_id": "correctInsert"}}
+}
+
+func TestUpdateNonExistentDocShouldFail(t *testing.T) {
+	session, replayTestDb := setupTestDb(t)
+	defer session.Close()
+	opChannel := make(chan map[string]interface{}, 1)
+	opChannel <- getUpdateToNonExistentOp()
+	close(opChannel)
+
+	err := oplogReplay(opChannel, getApplyOpsFunc(session), relative.New(100))
+	assert.NotNil(t, err)
+	assert.Equal(t, "Operation map[ts:64424509440 h:1003 v:2 op:u ns:testdb.replayTest o:map[some:update] o2:map[_id:missingUpdate]] failed", err.Error())
+
+	// Check that the element isn't in the db
+	var result interface{}
+	err = replayTestDb.Find(bson.M{"_id": "missingUpdate"}).One(&result)
+	assert.EqualError(t, err, "not found")
+}
+
+func TestOneBadOperationFailsReplay(t *testing.T) {
+	session, replayTestDb := setupTestDb(t)
+	defer session.Close()
+
+	// Do two operations. One should fail, the other should succeed
+	opChannel := make(chan map[string]interface{}, 2)
+	opChannel <- getSuccessfulUpsertOp()
+	opChannel <- getUpdateToNonExistentOp()
+	close(opChannel)
+
+	err := oplogReplay(opChannel, getApplyOpsFunc(session), relative.New(100))
+	assert.NotNil(t, err)
+	assert.EqualError(t, err, "Operation map[ts:64424509440 h:1003 v:2 op:u ns:testdb.replayTest o:map[some:update] o2:map[_id:missingUpdate]] failed")
+
+	var result map[string]interface{}
+	err = replayTestDb.Find(bson.M{"insertKey": "value"}).One(&result)
+	assert.Nil(t, err)
+	assert.Equal(t, "value", result["insertKey"])
+
+	err = replayTestDb.Find(bson.M{"_id": "missingUpdate"}).One(&result)
+	assert.EqualError(t, err, "not found")
+}
+
+func TestASuccessfulOplogOperation(t *testing.T) {
+	session, replayTestDb := setupTestDb(t)
+	defer session.Close()
+
+	opChannel := make(chan map[string]interface{}, 1)
+	opChannel <- getSuccessfulUpsertOp()
+	close(opChannel)
+
+	err := oplogReplay(opChannel, getApplyOpsFunc(session), relative.New(100))
+	assert.Nil(t, err)
+
+	var result map[string]interface{}
+	err = replayTestDb.Find(bson.M{"insertKey": "value"}).One(&result)
+	assert.Nil(t, err)
+	assert.Equal(t, "value", result["insertKey"])
 }

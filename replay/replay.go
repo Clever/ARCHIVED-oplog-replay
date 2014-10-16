@@ -109,7 +109,10 @@ func ReplayOplog(r io.Reader, controller ratecontroller.Controller, host string)
 	applyOps := func(ops []interface{}) error {
 		var result interface{}
 		session.Refresh()
-		if err := session.Run(bson.M{"applyOps": ops}, &result); err != nil {
+		// We don't want update operations to be converted to insert operations because that may
+		// mean writing partial documents to the database. Setting this flag doesn't affect inserts,
+		// they continue to upsert by default.
+		if err := session.Run(bson.M{"applyOps": ops, "alwaysUpsert": false}, &result); err != nil {
 			return err
 		}
 		return nil

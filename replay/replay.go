@@ -1,6 +1,7 @@
 package replay
 
 import (
+	"fmt"
 	"io"
 	"log"
 
@@ -90,6 +91,39 @@ func oplogReplay(ops chan map[string]interface{}, applyOps func([]interface{}) e
 	return returnVal
 }
 
+// getApplyOpsFunc returns the applyOps function. It's separated out for unit testing
+func getApplyOpsFunc(session *mgo.Session) func([]interface{}) error {
+	return func(ops []interface{}) error {
+		var result map[string]interface{}
+		if err := session.Run(bson.M{"applyOps": ops, "alwaysUpsert": false}, &result); err != nil {
+			return err
+		}
+		// We have to inspect the response from session.Run to determine if the oplog operation
+		// was applied correctly.
+		resultsArray, ok := result["results"].([]interface{})
+		if !ok {
+			return fmt.Errorf("Failed to cast %v as []interfaces{}", result["results"])
+		}
+		for index, opResult := range resultsArray {
+			boolResult, ok := opResult.(bool)
+			if !ok {
+				return fmt.Errorf("Failed to cast %v as bool", opResult)
+			}
+			if !boolResult {
+				return fmt.Errorf("Operation %v failed", ops[index])
+			}
+		}
+		numApplied, ok := result["applied"].(int)
+		if !ok {
+			return fmt.Errorf("Failed to cast applied %s as int", numApplied)
+		}
+		if numApplied != len(ops) {
+			return fmt.Errorf("Operations applied %s does not match operations sent %s", numApplied, len(ops))
+		}
+		return nil
+	}
+}
+
 // ReplayOplog replays an oplog onto the specified host. If there are any errors this function
 // terminates and returns the error immediately.
 // ReplayOplog replays an oplog onto the specified host
@@ -106,15 +140,7 @@ func ReplayOplog(r io.Reader, controller ratecontroller.Controller, host string)
 	}
 	defer session.Close()
 
-	applyOps := func(ops []interface{}) error {
-		var result interface{}
-		session.Refresh()
-		if err := session.Run(bson.M{"applyOps": ops}, &result); err != nil {
-			return err
-		}
-		return nil
-	}
-
+	applyOps := getApplyOpsFunc(session)
 	log.Println("Begin replaying...")
 
 	if err := oplogReplay(opChannel, applyOps, controller); err != nil {

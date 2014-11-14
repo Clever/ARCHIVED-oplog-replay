@@ -19,6 +19,8 @@ func main() {
 	ratetype := flag.String("type", "fixed", "Type of rate limiting. Valid options are 'fixed' and 'relative'. See 'speed' for details on these types,")
 	speed := flag.Float64("speed", 1, "Sets the speed of the replay. For 'fixed' type replays this indicates the operations per second. For 'relative' type operations this indicates the speed relative to the initial oplog replay.")
 	path := flag.String("path", "/dev/stdin", "Oplog file to replay")
+	// See https://github.com/mongodb/docs/commit/238d6755a74c3c978cc272d318283f726379a43c for more details on the behavior of upsert
+	alwaysUpsert := flag.Bool("alwaysUpsert", false, "Convert all updates to upserts. Converting all updates to upserts prevents errors when replaying oplog dumps that have updates to documents followed by deletes to those same documents")
 	flag.Parse()
 
 	controller, err := getControllerFromTypeAndSpeed(*ratetype, *speed)
@@ -29,7 +31,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	if err := replay.ReplayOplog(input, controller, *host); err != nil {
+	if err := replay.ReplayOplog(input, controller, *alwaysUpsert, *host); err != nil {
 		panic(err)
 	}
 }

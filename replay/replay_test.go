@@ -172,7 +172,7 @@ func TestUpdateNonExistentDocShouldFail(t *testing.T) {
 	opChannel <- getUpdateToNonExistentOp()
 	close(opChannel)
 
-	err := oplogReplay(opChannel, getApplyOpsFunc(session), relative.New(100))
+	err := oplogReplay(opChannel, getApplyOpsFunc(session, false), relative.New(100))
 	assert.NotNil(t, err)
 	assert.Equal(t, "Operation map[ts:64424509440 h:1003 v:2 op:u ns:testdb.replayTest o:map[some:update] o2:map[_id:missingUpdate]] failed", err.Error())
 
@@ -180,6 +180,23 @@ func TestUpdateNonExistentDocShouldFail(t *testing.T) {
 	var result interface{}
 	err = replayTestDb.Find(bson.M{"_id": "missingUpdate"}).One(&result)
 	assert.EqualError(t, err, "not found")
+}
+
+func TestUpdateNonExistentDocShouldUpsertWithFlagSet(t *testing.T) {
+	session, replayTestDb := setupTestDb(t)
+	defer session.Close()
+	opChannel := make(chan map[string]interface{}, 1)
+	opChannel <- getUpdateToNonExistentOp()
+	close(opChannel)
+
+	err := oplogReplay(opChannel, getApplyOpsFunc(session, true), relative.New(100))
+	assert.Nil(t, err)
+
+	// Check that the element is in the db
+	var result map[string]interface{}
+	err = replayTestDb.Find(bson.M{"_id": "missingUpdate"}).One(&result)
+	assert.Nil(t, err)
+	assert.Equal(t, "missingUpdate", result["_id"])
 }
 
 func TestOneBadOperationFailsReplay(t *testing.T) {
@@ -192,7 +209,7 @@ func TestOneBadOperationFailsReplay(t *testing.T) {
 	opChannel <- getUpdateToNonExistentOp()
 	close(opChannel)
 
-	err := oplogReplay(opChannel, getApplyOpsFunc(session), relative.New(100))
+	err := oplogReplay(opChannel, getApplyOpsFunc(session, false), relative.New(100))
 	assert.NotNil(t, err)
 	assert.EqualError(t, err, "Operation map[ts:64424509440 h:1003 v:2 op:u ns:testdb.replayTest o:map[some:update] o2:map[_id:missingUpdate]] failed")
 
@@ -213,7 +230,7 @@ func TestASuccessfulOplogOperation(t *testing.T) {
 	opChannel <- getSuccessfulUpsertOp()
 	close(opChannel)
 
-	err := oplogReplay(opChannel, getApplyOpsFunc(session), relative.New(100))
+	err := oplogReplay(opChannel, getApplyOpsFunc(session, false), relative.New(100))
 	assert.Nil(t, err)
 
 	var result map[string]interface{}

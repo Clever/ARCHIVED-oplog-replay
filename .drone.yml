@@ -2,7 +2,7 @@ image: go1.2
 script:
   - ./test_drone.sh
 services:
-  - clever/mongo:2.4
+  - clever/mongo:2.6
 notify:
   email:
     recipients:

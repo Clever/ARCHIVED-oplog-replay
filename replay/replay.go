@@ -92,10 +92,10 @@ func oplogReplay(ops chan map[string]interface{}, applyOps func([]interface{}) e
 }
 
 // getApplyOpsFunc returns the applyOps function. It's separated out for unit testing
-func getApplyOpsFunc(session *mgo.Session) func([]interface{}) error {
+func getApplyOpsFunc(session *mgo.Session, alwaysUpsert bool) func([]interface{}) error {
 	return func(ops []interface{}) error {
 		var result map[string]interface{}
-		if err := session.Run(bson.M{"applyOps": ops, "alwaysUpsert": false}, &result); err != nil {
+		if err := session.Run(bson.M{"applyOps": ops, "alwaysUpsert": alwaysUpsert}, &result); err != nil {
 			return err
 		}
 		// We have to inspect the response from session.Run to determine if the oplog operation
@@ -127,7 +127,7 @@ func getApplyOpsFunc(session *mgo.Session) func([]interface{}) error {
 // ReplayOplog replays an oplog onto the specified host. If there are any errors this function
 // terminates and returns the error immediately.
 // ReplayOplog replays an oplog onto the specified host
-func ReplayOplog(r io.Reader, controller ratecontroller.Controller, host string) error {
+func ReplayOplog(r io.Reader, controller ratecontroller.Controller, alwaysUpsert bool, host string) error {
 	log.Println("Parsing BSON...")
 	opChannel := make(chan map[string]interface{})
 	parseBSONReturnVal := make(chan error)
@@ -140,7 +140,7 @@ func ReplayOplog(r io.Reader, controller ratecontroller.Controller, host string)
 	}
 	defer session.Close()
 
-	applyOps := getApplyOpsFunc(session)
+	applyOps := getApplyOpsFunc(session, alwaysUpsert)
 	log.Println("Begin replaying...")
 
 	if err := oplogReplay(opChannel, applyOps, controller); err != nil {

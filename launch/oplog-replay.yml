@@ -1,0 +1,10 @@
+run:
+  type: docker
+env:
+- GEARMAN_HOST
+- GEARMAN_PORT
+- SENTRY_DSN
+- AWS_ACCESS_KEY_ID
+- AWS_SECRET_ACCESS_KEY
+- AWS_REGION
+ 

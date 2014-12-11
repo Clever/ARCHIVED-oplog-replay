@@ -1,4 +1,4 @@
-image: go1.2
+image: bradrydzewski/go:1.3
 script:
   - ./test_drone.sh
 services:

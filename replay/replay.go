@@ -13,9 +13,25 @@ import (
 	"time"
 )
 
+// FailedOperationError means that an operation failed to apply.
+type FailedOperationError struct {
+	op  map[string]interface{}
+	msg string
+}
+
+func (e *FailedOperationError) Error() string { return e.msg }
+
+// NewFailedOperationsError creates and returns a FailedOperationsError for the given op.
+func NewFailedOperationsError(op map[string]interface{}) *FailedOperationError {
+	return &FailedOperationError{
+		op:  op,
+		msg: fmt.Sprintf("Operation %v failed", op),
+	}
+}
+
 // ParseBSON parses the bson from the Reader interface. It writes each operation to the opChannel.
 // If there are any errors it closes the opChannel and returns immediately.
-func parseBSON(r io.Reader, opChannel chan map[string]interface{}) error {
+func parseBSON(done chan struct{}, r io.Reader, opChannel chan map[string]interface{}) error {
 	defer close(opChannel)
 
 	scanner := bsonScanner.New(r)
@@ -24,7 +40,11 @@ func parseBSON(r io.Reader, opChannel chan map[string]interface{}) error {
 		if err := bson.Unmarshal(scanner.Bytes(), &op); err != nil {
 			return err
 		}
-		opChannel <- op
+		select {
+		case opChannel <- op:
+		case <-done:
+			return nil
+		}
 	}
 	if scanner.Err() != nil {
 		return scanner.Err()
@@ -51,7 +71,7 @@ func getAllElementsCurrentlyInChannel(channel chan map[string]interface{}) ([]in
 	}
 }
 
-func oplogReplay(ops chan map[string]interface{}, applyOps func([]interface{}) error, controller ratecontroller.Controller) error {
+func oplogReplay(done chan struct{}, ops chan map[string]interface{}, applyOps func([]interface{}) error, controller ratecontroller.Controller) error {
 	// The choice of 20 for the maximum number of operations to apply at once is fairly arbitrary
 	timedOps := make(chan map[string]interface{}, 20)
 	// Run a goroutine that applies the ops. If there are any errors in application this returns immediately.
@@ -64,6 +84,7 @@ func oplogReplay(ops chan map[string]interface{}, applyOps func([]interface{}) e
 			opsToApply, closed := getAllElementsCurrentlyInChannel(timedOps)
 			if len(opsToApply) > 0 {
 				if err := applyOps(opsToApply); err != nil {
+					close(done)
 					timedOpsReturnVal <- err
 					return
 				}
@@ -77,25 +98,32 @@ func oplogReplay(ops chan map[string]interface{}, applyOps func([]interface{}) e
 		}
 		timedOpsReturnVal <- nil
 	}()
+
+forops:
 	for op := range ops {
 		if op["ns"] == "" {
 			// Can't apply ops without a db name
 			continue
 		}
 		time.Sleep(controller.WaitTime(op))
-		timedOps <- op
+		select {
+		case timedOps <- op:
+		case <-done:
+			break forops
+		}
 	}
 	close(timedOps)
 	returnVal := <-timedOpsReturnVal
 	close(timedOpsReturnVal)
 	return returnVal
+
 }
 
 // getApplyOpsFunc returns the applyOps function. It's separated out for unit testing
 func getApplyOpsFunc(session *mgo.Session, alwaysUpsert bool) func([]interface{}) error {
 	return func(ops []interface{}) error {
 		var result map[string]interface{}
-		if err := session.Run(bson.M{"applyOps": ops, "alwaysUpsert": alwaysUpsert}, &result); err != nil {
+		if err := session.Run(bson.D{{"applyOps", ops}, {"alwaysUpsert", alwaysUpsert}}, &result); err != nil {
 			return err
 		}
 		// We have to inspect the response from session.Run to determine if the oplog operation
@@ -110,7 +138,8 @@ func getApplyOpsFunc(session *mgo.Session, alwaysUpsert bool) func([]interface{}
 				return fmt.Errorf("Failed to cast %v as bool", opResult)
 			}
 			if !boolResult {
-				return fmt.Errorf("Operation %v failed", ops[index])
+				failedOp := ops[index].(map[string]interface{})
+				return NewFailedOperationsError(failedOp)
 			}
 		}
 		numApplied, ok := result["applied"].(int)
@@ -130,9 +159,11 @@ func getApplyOpsFunc(session *mgo.Session, alwaysUpsert bool) func([]interface{}
 func ReplayOplog(r io.Reader, controller ratecontroller.Controller, alwaysUpsert bool, host string) error {
 	log.Println("Parsing BSON...")
 	opChannel := make(chan map[string]interface{})
+	done := make(chan struct{})
+	defer close(done)
 	parseBSONReturnVal := make(chan error)
 	go func() {
-		parseBSONReturnVal <- parseBSON(r, opChannel)
+		parseBSONReturnVal <- parseBSON(done, r, opChannel)
 	}()
 	session, err := mgo.Dial(host)
 	if err != nil {
@@ -143,7 +174,7 @@ func ReplayOplog(r io.Reader, controller ratecontroller.Controller, alwaysUpsert
 	applyOps := getApplyOpsFunc(session, alwaysUpsert)
 	log.Println("Begin replaying...")
 
-	if err := oplogReplay(opChannel, applyOps, controller); err != nil {
+	if err := oplogReplay(done, opChannel, applyOps, controller); err != nil {
 		return err
 	}
 	retVal := <-parseBSONReturnVal

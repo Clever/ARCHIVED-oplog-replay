@@ -50,7 +50,8 @@ func TestOplogReplay(t *testing.T) {
 		}
 		close(opChannel)
 	}()
-	if err := oplogReplay(opChannel, applyOps, relative.New(1)); err != nil {
+	done := make(chan struct{})
+	if err := oplogReplay(done, opChannel, applyOps, relative.New(1)); err != nil {
 		t.Fatal(err.Error())
 	}
 
@@ -87,7 +88,8 @@ func TestOplogReplaySpeed(t *testing.T) {
 		}
 		close(opChannel)
 	}()
-	if err := oplogReplay(opChannel, applyOps, relative.New(5)); err != nil {
+	done := make(chan struct{})
+	if err := oplogReplay(done, opChannel, applyOps, relative.New(5)); err != nil {
 		t.Fatalf(err.Error())
 	}
 }
@@ -113,14 +115,13 @@ func TestWillApplyInBatch(t *testing.T) {
 			// Wait for a couple more to be added to the queue
 			<-applyOpsWaiter
 			return nil
-		} else {
-			// It should try to apply two operations here because the channel put in
-			// two new elements before this completed the first time.
-			if len(ops) != 2 {
-				return fmt.Errorf("Expected 2 ops the second time, got %x", len(ops))
-			}
-			return nil
 		}
+		// It should try to apply two operations here because the channel put in
+		// two new elements before this completed the first time.
+		if len(ops) != 2 {
+			return fmt.Errorf("Expected 2 ops the second time, got %x", len(ops))
+		}
+		return nil
 	}
 
 	opChannel := make(chan map[string]interface{})
@@ -135,11 +136,11 @@ func TestWillApplyInBatch(t *testing.T) {
 		applyOpsWaiter <- true
 		close(opChannel)
 	}()
-
-	if err := oplogReplay(opChannel, applyOps, relative.New(100)); err != nil {
+	done := make(chan struct{})
+	if err := oplogReplay(done, opChannel, applyOps, relative.New(100)); err != nil {
 		t.Fatal(err.Error())
 	}
-	oplogReplay(opChannel, applyOps, relative.New(5))
+	oplogReplay(done, opChannel, applyOps, relative.New(5))
 }
 
 func setupTestDb(t *testing.T) (*mgo.Session, *mgo.Collection) {
@@ -172,9 +173,12 @@ func TestUpdateNonExistentDocShouldFail(t *testing.T) {
 	opChannel <- getUpdateToNonExistentOp()
 	close(opChannel)
 
-	err := oplogReplay(opChannel, getApplyOpsFunc(session, false), relative.New(100))
+	done := make(chan struct{})
+	err := oplogReplay(done, opChannel, getApplyOpsFunc(session, false), relative.New(100))
 	assert.NotNil(t, err)
-	assert.Equal(t, "Operation map[ts:64424509440 h:1003 v:2 op:u ns:testdb.replayTest o:map[some:update] o2:map[_id:missingUpdate]] failed", err.Error())
+	failedOpError, ok := err.(*FailedOperationError)
+	assert.True(t, ok, "Wrong error type returned")
+	assert.Equal(t, failedOpError.op, getUpdateToNonExistentOp())
 
 	// Check that the element isn't in the db
 	var result interface{}
@@ -189,7 +193,8 @@ func TestUpdateNonExistentDocShouldUpsertWithFlagSet(t *testing.T) {
 	opChannel <- getUpdateToNonExistentOp()
 	close(opChannel)
 
-	err := oplogReplay(opChannel, getApplyOpsFunc(session, true), relative.New(100))
+	done := make(chan struct{})
+	err := oplogReplay(done, opChannel, getApplyOpsFunc(session, true), relative.New(100))
 	assert.Nil(t, err)
 
 	// Check that the element is in the db
@@ -209,9 +214,12 @@ func TestOneBadOperationFailsReplay(t *testing.T) {
 	opChannel <- getUpdateToNonExistentOp()
 	close(opChannel)
 
-	err := oplogReplay(opChannel, getApplyOpsFunc(session, false), relative.New(100))
+	done := make(chan struct{})
+	err := oplogReplay(done, opChannel, getApplyOpsFunc(session, false), relative.New(100))
 	assert.NotNil(t, err)
-	assert.EqualError(t, err, "Operation map[ts:64424509440 h:1003 v:2 op:u ns:testdb.replayTest o:map[some:update] o2:map[_id:missingUpdate]] failed")
+	failedOpError, ok := err.(*FailedOperationError)
+	assert.True(t, ok, "Wrong error type returned")
+	assert.Equal(t, failedOpError.op, getUpdateToNonExistentOp())
 
 	var result map[string]interface{}
 	err = replayTestDb.Find(bson.M{"insertKey": "value"}).One(&result)
@@ -230,7 +238,8 @@ func TestASuccessfulOplogOperation(t *testing.T) {
 	opChannel <- getSuccessfulUpsertOp()
 	close(opChannel)
 
-	err := oplogReplay(opChannel, getApplyOpsFunc(session, false), relative.New(100))
+	done := make(chan struct{})
+	err := oplogReplay(done, opChannel, getApplyOpsFunc(session, false), relative.New(100))
 	assert.Nil(t, err)
 
 	var result map[string]interface{}

@@ -10,6 +10,7 @@ import (
 
 	"github.com/Clever/oplog-replay/ratecontroller/relative"
 	"github.com/stretchr/testify/assert"
+
 	"labix.org/v2/mgo"
 	"labix.org/v2/mgo/bson"
 )
@@ -43,6 +44,7 @@ func TestOplogReplay(t *testing.T) {
 		return nil
 	}
 
+	done := make(chan struct{})
 	opChannel := make(chan map[string]interface{})
 	go func() {
 		for _, op := range ops {
@@ -50,7 +52,10 @@ func TestOplogReplay(t *testing.T) {
 		}
 		close(opChannel)
 	}()
-	if err := oplogReplay(opChannel, applyOps, relative.New(1)); err != nil {
+
+	timedOps := controlRate(done, opChannel, relative.New(1))
+	batchedOps := batchOps(done, timedOps)
+	if err := oplogReplay(batchedOps, applyOps); err != nil {
 		t.Fatal(err.Error())
 	}
 
@@ -80,6 +85,7 @@ func TestOplogReplaySpeed(t *testing.T) {
 		return nil
 	}
 
+	done := make(chan struct{})
 	opChannel := make(chan map[string]interface{})
 	go func() {
 		for _, op := range ops {
@@ -87,7 +93,9 @@ func TestOplogReplaySpeed(t *testing.T) {
 		}
 		close(opChannel)
 	}()
-	if err := oplogReplay(opChannel, applyOps, relative.New(5)); err != nil {
+	timedOps := controlRate(done, opChannel, relative.New(5))
+	batchedOps := batchOps(done, timedOps)
+	if err := oplogReplay(batchedOps, applyOps); err != nil {
 		t.Fatalf(err.Error())
 	}
 }
@@ -123,7 +131,9 @@ func TestWillApplyInBatch(t *testing.T) {
 		}
 	}
 
+	done := make(chan struct{})
 	opChannel := make(chan map[string]interface{})
+
 	go func() {
 		opChannel <- ops[0]
 		// Wait for the applyOps function to process the first
@@ -136,10 +146,11 @@ func TestWillApplyInBatch(t *testing.T) {
 		close(opChannel)
 	}()
 
-	if err := oplogReplay(opChannel, applyOps, relative.New(100)); err != nil {
+	timedOps := controlRate(done, opChannel, relative.New(100))
+	batchedOps := batchOps(done, timedOps)
+	if err := oplogReplay(batchedOps, applyOps); err != nil {
 		t.Fatal(err.Error())
 	}
-	oplogReplay(opChannel, applyOps, relative.New(5))
 }
 
 func setupTestDb(t *testing.T) (*mgo.Session, *mgo.Collection) {
@@ -168,13 +179,19 @@ func getSuccessfulUpsertOp() map[string]interface{} {
 func TestUpdateNonExistentDocShouldFail(t *testing.T) {
 	session, replayTestDb := setupTestDb(t)
 	defer session.Close()
+	done := make(chan struct{})
 	opChannel := make(chan map[string]interface{}, 1)
 	opChannel <- getUpdateToNonExistentOp()
 	close(opChannel)
 
-	err := oplogReplay(opChannel, getApplyOpsFunc(session, false), relative.New(100))
+	timedOps := controlRate(done, opChannel, relative.New(100))
+	batchedOps := batchOps(done, timedOps)
+
+	err := oplogReplay(batchedOps, getApplyOpsFunc(session, false))
 	assert.NotNil(t, err)
-	assert.Equal(t, "Operation map[ts:64424509440 h:1003 v:2 op:u ns:testdb.replayTest o:map[some:update] o2:map[_id:missingUpdate]] failed", err.Error())
+	failedOpError, ok := err.(*FailedOperationError)
+	assert.True(t, ok, "Wrong error type returned")
+	assert.Equal(t, failedOpError.op, getUpdateToNonExistentOp())
 
 	// Check that the element isn't in the db
 	var result interface{}
@@ -185,11 +202,15 @@ func TestUpdateNonExistentDocShouldFail(t *testing.T) {
 func TestUpdateNonExistentDocShouldUpsertWithFlagSet(t *testing.T) {
 	session, replayTestDb := setupTestDb(t)
 	defer session.Close()
+	done := make(chan struct{})
 	opChannel := make(chan map[string]interface{}, 1)
 	opChannel <- getUpdateToNonExistentOp()
 	close(opChannel)
 
-	err := oplogReplay(opChannel, getApplyOpsFunc(session, true), relative.New(100))
+	timedOps := controlRate(done, opChannel, relative.New(100))
+	batchedOps := batchOps(done, timedOps)
+
+	err := oplogReplay(batchedOps, getApplyOpsFunc(session, true))
 	assert.Nil(t, err)
 
 	// Check that the element is in the db
@@ -204,14 +225,19 @@ func TestOneBadOperationFailsReplay(t *testing.T) {
 	defer session.Close()
 
 	// Do two operations. One should fail, the other should succeed
+	done := make(chan struct{})
 	opChannel := make(chan map[string]interface{}, 2)
 	opChannel <- getSuccessfulUpsertOp()
 	opChannel <- getUpdateToNonExistentOp()
 	close(opChannel)
 
-	err := oplogReplay(opChannel, getApplyOpsFunc(session, false), relative.New(100))
+	timedOps := controlRate(done, opChannel, relative.New(100))
+	batchedOps := batchOps(done, timedOps)
+	err := oplogReplay(batchedOps, getApplyOpsFunc(session, false))
 	assert.NotNil(t, err)
-	assert.EqualError(t, err, "Operation map[ts:64424509440 h:1003 v:2 op:u ns:testdb.replayTest o:map[some:update] o2:map[_id:missingUpdate]] failed")
+	failedOpError, ok := err.(*FailedOperationError)
+	assert.True(t, ok, "Wrong error type returned")
+	assert.Equal(t, failedOpError.op, getUpdateToNonExistentOp())
 
 	var result map[string]interface{}
 	err = replayTestDb.Find(bson.M{"insertKey": "value"}).One(&result)
@@ -226,11 +252,15 @@ func TestASuccessfulOplogOperation(t *testing.T) {
 	session, replayTestDb := setupTestDb(t)
 	defer session.Close()
 
+	done := make(chan struct{})
 	opChannel := make(chan map[string]interface{}, 1)
 	opChannel <- getSuccessfulUpsertOp()
 	close(opChannel)
 
-	err := oplogReplay(opChannel, getApplyOpsFunc(session, false), relative.New(100))
+	timedOps := controlRate(done, opChannel, relative.New(100))
+	batchedOps := batchOps(done, timedOps)
+
+	err := oplogReplay(batchedOps, getApplyOpsFunc(session, false))
 	assert.Nil(t, err)
 
 	var result map[string]interface{}

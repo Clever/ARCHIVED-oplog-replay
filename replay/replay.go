@@ -13,89 +13,135 @@ import (
 	"time"
 )
 
-// ParseBSON parses the bson from the Reader interface. It writes each operation to the opChannel.
-// If there are any errors it closes the opChannel and returns immediately.
-func parseBSON(r io.Reader, opChannel chan map[string]interface{}) error {
-	defer close(opChannel)
-
-	scanner := bsonScanner.New(r)
-	for scanner.Scan() {
-		op := map[string]interface{}{}
-		if err := bson.Unmarshal(scanner.Bytes(), &op); err != nil {
-			return err
-		}
-		opChannel <- op
-	}
-	if scanner.Err() != nil {
-		return scanner.Err()
-	}
-	return nil
+// FailedOperationError means that an operation failed to apply.
+type FailedOperationError struct {
+	op  map[string]interface{}
+	msg string
 }
 
-// getAllElementsCurrentlyInChannel returns a slice of all the elements that can be retreived from the
-// channel without blocking. It also returns a boolean that's true if the channel has been closed.
-func getAllElementsCurrentlyInChannel(channel chan map[string]interface{}) ([]interface{}, bool) {
-	var elements []interface{}
-	// In a loop grab as many elements as you can before you would block (the default case)
-	for {
-		select {
-		case elem, channelOpen := <-channel:
-			if !channelOpen {
-				return elements, true
-			}
-			elements = append(elements, elem)
-		default:
-			// In this case there are no more elements in the channel and it hasn't been closed
-			return elements, false
-		}
+func (e *FailedOperationError) Error() string { return e.msg }
+
+// NewFailedOperationError creates and returns a FailedOperationsError for the given op.
+func NewFailedOperationError(op map[string]interface{}) *FailedOperationError {
+	return &FailedOperationError{
+		op:  op,
+		msg: fmt.Sprintf("Operation %v failed", op),
 	}
 }
 
-func oplogReplay(ops chan map[string]interface{}, applyOps func([]interface{}) error, controller ratecontroller.Controller) error {
-	// The choice of 20 for the maximum number of operations to apply at once is fairly arbitrary
-	timedOps := make(chan map[string]interface{}, 20)
-	// Run a goroutine that applies the ops. If there are any errors in application this returns immediately.
-	// It sets the timedOpsReturnVal channel with the error response.
-	timedOpsReturnVal := make(chan error)
+// ParseBSON parses the bson from the Reader interface. It returns a channel that the caller can use
+// to retrieve the parsed BSON ops, and a channel for parse errors.
+func parseBSON(done <-chan struct{}, r io.Reader) (<-chan map[string]interface{}, <-chan error) {
+	c := make(chan map[string]interface{})
+	errc := make(chan error, 1)
+
 	go func() {
-		// Repeatedly grab as many elements as possible from the channel. If there aren't any then sleep,
-		// otherwise apply them.
+		defer close(c)
+		scanner := bsonScanner.New(r)
+	scan:
+		for scanner.Scan() {
+			op := map[string]interface{}{}
+			if err := bson.Unmarshal(scanner.Bytes(), &op); err != nil {
+				errc <- err
+				return
+			}
+			select {
+			case c <- op:
+			case <-done:
+				break scan
+			}
+		}
+		if err := scanner.Err(); err != nil {
+			fmt.Println(err)
+			errc <- err
+		}
+		errc <- nil
+	}()
+	return c, errc
+}
+
+// controlRate takes operations on an input channel puts them into the returned output
+// channel at a rate dictated by the passed in rate controller.
+func controlRate(done <-chan struct{}, ops <-chan map[string]interface{},
+	controller ratecontroller.Controller) <-chan map[string]interface{} {
+	// The choice of 20 for the maximum number of operations to apply at once is fairly arbitrary
+	c := make(chan map[string]interface{}, 20)
+
+	go func() {
+		defer close(c)
+		for op := range ops {
+			if op["ns"] == "" {
+				continue
+			}
+			time.Sleep(controller.WaitTime(op))
+			select {
+			case c <- op:
+			case <-done:
+			}
+		}
+	}()
+	return c
+}
+
+// batchOps takes an input buffered channel and returns a channel which will contain batched
+// ops.  The maximum batch size is the size of the buffered input channel.
+func batchOps(done <-chan struct{}, ops <-chan map[string]interface{}) <-chan []interface{} {
+	c := make(chan []interface{})
+
+	go func() {
+		defer close(c)
+		// In a loop grab as many elements as you can before you would block (the default case)
+		// Only place non-empty batches into the output channel.
+		elements := make([]interface{}, 0)
+
+		// Send the current list of elements as a batch, unless it's empty. Returns whether or not a batch was sent.
+		sendElements := func() bool {
+			if len(elements) == 0 {
+				return false
+			}
+			select {
+			case c <- elements:
+				elements = make([]interface{}, 0)
+			case <-done:
+			}
+			return true
+		}
+
 		for {
-			opsToApply, closed := getAllElementsCurrentlyInChannel(timedOps)
-			if len(opsToApply) > 0 {
-				if err := applyOps(opsToApply); err != nil {
-					timedOpsReturnVal <- err
+			select {
+			case elem, channelOpen := <-ops:
+				if !channelOpen {
+					sendElements()
 					return
 				}
-			}
-			if closed {
-				break
-			}
-			if len(opsToApply) == 0 {
-				time.Sleep(time.Duration(1) * time.Millisecond)
+				elements = append(elements, elem)
+			default:
+				if !sendElements() {
+					// stop from busy-wait eating all cpu.
+					time.Sleep(1 * time.Millisecond)
+				}
 			}
 		}
-		timedOpsReturnVal <- nil
 	}()
-	for op := range ops {
-		if op["ns"] == "" {
-			// Can't apply ops without a db name
-			continue
+	return c
+}
+
+// oplogReplay takes in a channel of batched operations and applys them using the
+// supplied function.  Returns an error if the apply operation fails.
+func oplogReplay(batches <-chan []interface{}, applyOps func([]interface{}) error) error {
+	for batch := range batches {
+		if err := applyOps(batch); err != nil {
+			return err
 		}
-		time.Sleep(controller.WaitTime(op))
-		timedOps <- op
 	}
-	close(timedOps)
-	returnVal := <-timedOpsReturnVal
-	close(timedOpsReturnVal)
-	return returnVal
+	return nil
 }
 
 // getApplyOpsFunc returns the applyOps function. It's separated out for unit testing
 func getApplyOpsFunc(session *mgo.Session, alwaysUpsert bool) func([]interface{}) error {
 	return func(ops []interface{}) error {
 		var result map[string]interface{}
-		if err := session.Run(bson.M{"applyOps": ops, "alwaysUpsert": alwaysUpsert}, &result); err != nil {
+		if err := session.Run(bson.D{{"applyOps", ops}, {"alwaysUpsert", alwaysUpsert}}, &result); err != nil {
 			return err
 		}
 		// We have to inspect the response from session.Run to determine if the oplog operation
@@ -110,7 +156,8 @@ func getApplyOpsFunc(session *mgo.Session, alwaysUpsert bool) func([]interface{}
 				return fmt.Errorf("Failed to cast %v as bool", opResult)
 			}
 			if !boolResult {
-				return fmt.Errorf("Operation %v failed", ops[index])
+				failedOp := ops[index].(map[string]interface{})
+				return NewFailedOperationError(failedOp)
 			}
 		}
 		numApplied, ok := result["applied"].(int)
@@ -126,27 +173,29 @@ func getApplyOpsFunc(session *mgo.Session, alwaysUpsert bool) func([]interface{}
 
 // ReplayOplog replays an oplog onto the specified host. If there are any errors this function
 // terminates and returns the error immediately.
-// ReplayOplog replays an oplog onto the specified host
 func ReplayOplog(r io.Reader, controller ratecontroller.Controller, alwaysUpsert bool, host string) error {
-	log.Println("Parsing BSON...")
-	opChannel := make(chan map[string]interface{})
-	parseBSONReturnVal := make(chan error)
-	go func() {
-		parseBSONReturnVal <- parseBSON(r, opChannel)
-	}()
+	done := make(chan struct{})
+	defer close(done)
+
 	session, err := mgo.Dial(host)
 	if err != nil {
 		return err
 	}
 	defer session.Close()
 
+	log.Println("Parsing BSON...")
+	ops, parseErrors := parseBSON(done, r)
+	timedOps := controlRate(done, ops, controller)
+	batchedOps := batchOps(done, timedOps)
+
 	applyOps := getApplyOpsFunc(session, alwaysUpsert)
 	log.Println("Begin replaying...")
 
-	if err := oplogReplay(opChannel, applyOps, controller); err != nil {
+	if err := oplogReplay(batchedOps, applyOps); err != nil {
 		return err
 	}
-	retVal := <-parseBSONReturnVal
-	close(parseBSONReturnVal)
-	return retVal
+	if err := <-parseErrors; err != nil {
+		return err
+	}
+	return nil
 }

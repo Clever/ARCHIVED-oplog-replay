@@ -22,6 +22,6 @@ RUN GOPATH=/etc/go go get github.com/Clever/oplog-replay/...
 RUN GOPATH=/etc/go go build -o /usr/local/bin/oplogreplay github.com/Clever/oplog-replay/cmd/oplog-replay
 
 # Gearcmd
-RUN curl -L https://github.com/Clever/gearcmd/releases/download/v0.3.3/gearcmd-v0.3.3-linux-amd64.tar.gz | tar xz -C /usr/local/bin --strip-components 1
+RUN curl -L https://github.com/Clever/gearcmd/releases/download/v0.3.6/gearcmd-v0.3.6-linux-amd64.tar.gz | tar xz -C /usr/local/bin --strip-components 1
 
 CMD ["/etc/go/src/github.com/Clever/oplog-replay/run_as_worker.sh"]

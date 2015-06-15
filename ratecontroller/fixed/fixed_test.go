@@ -16,7 +16,7 @@ func TestRateController(t *testing.T) {
 
 	waitDuration := controller.WaitTime(op)
 	// Should be 0 for the first call
-	assert.Equal(t, 0, waitDuration.Nanoseconds())
+	assert.Equal(t, int64(0), waitDuration.Nanoseconds())
 	waitDuration = controller.WaitTime(op)
 	if waitDuration.Seconds() > 0.1 || waitDuration.Seconds() <= 0.0 {
 		t.Fatalf("Wait duration not in range of (0.0, 0.1] secs. Is: %f", waitDuration.Seconds())
@@ -25,7 +25,7 @@ func TestRateController(t *testing.T) {
 	// After 200ms should be able to apply one more
 	time.Sleep(time.Duration(200) * time.Millisecond)
 	waitDuration = controller.WaitTime(op)
-	assert.Equal(t, 0, waitDuration.Nanoseconds())
+	assert.Equal(t, int64(0), waitDuration.Nanoseconds())
 
 	// But not two more
 	waitDuration = controller.WaitTime(op)

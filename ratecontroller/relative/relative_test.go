@@ -15,7 +15,7 @@ func TestRelativeRateController(t *testing.T) {
 
 	// Try one op that should succeed
 	waitDuration := controller.WaitTime(firstOp)
-	assert.Equal(t, 0, waitDuration.Nanoseconds())
+	assert.Equal(t, int64(0), waitDuration.Nanoseconds())
 
 	// 100ms passes in log processing time, but the next entry is 3 seconds later,
 	// so even with the multipler of two we shouldn't process it
@@ -29,5 +29,5 @@ func TestRelativeRateController(t *testing.T) {
 	// After another 100ms it should be available for processing
 	time.Sleep(time.Duration(100) * time.Millisecond)
 	waitDuration = controller.WaitTime(secondOp)
-	assert.Equal(t, 0, waitDuration.Nanoseconds())
+	assert.Equal(t, int64(0), waitDuration.Nanoseconds())
 }

@@ -36,6 +36,25 @@ func main() {
 	}
 }
 
+// readerWithTimeout gets a reader from the path, error if timeout.
+func readerWithTimeout(path string) (io.Reader, error) {
+	var reader io.Reader
+	var err error
+
+	c := make(chan bool, 1)
+	go func() {
+		reader, err = pathio.Reader(path)
+		c <- true
+	}()
+
+	select {
+	case <-c:
+		return reader, err
+	case <-time.After(5 * time.Minutes):
+		return reader, fmt.Errorf("pathio timed-out")
+	}
+}
+
 // readerWithRetry gets a reader from the path, retrying if necessary.
 func readerWithRetry(path string) (io.Reader, error) {
 	backoffObj := backoff.ExponentialBackOff{
@@ -50,7 +69,7 @@ func readerWithRetry(path string) (io.Reader, error) {
 	var reader io.Reader
 	operation := func() error {
 		var err error
-		reader, err = pathio.Reader(path)
+		reader, err = readerWithTimeout(path)
 		return err
 	}
 	if err := backoff.Retry(operation, &backoffObj); err != nil {

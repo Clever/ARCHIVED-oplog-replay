@@ -8,7 +8,7 @@ RUN apt-get -y update && apt-get install -y -q curl
 RUN apt-get -y update && apt-get install -y git golang bzr mercurial bash
 RUN GOPATH=/etc/go go get launchpad.net/godeb
 RUN apt-get remove -y golang golang-go golang-doc golang-src
-RUN /etc/go/bin/godeb install 1.5
+RUN /etc/go/bin/godeb install 1.2.1
 
 # Mongo
 RUN apt-key adv --keyserver hkp://keyserver.ubuntu.com:80 --recv 7F0CEB10

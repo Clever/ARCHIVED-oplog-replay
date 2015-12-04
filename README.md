@@ -40,3 +40,7 @@ You can get an oplog dump by specifying the collection directly:
 `mongodump --db local --collection oplog.rs`
 
 A `--query` flag can be specified to get only certain oplog entries.
+
+## Vendoring
+
+Please view the [dev-handbook for instructions](https://github.com/Clever/dev-handbook/blob/master/golang/godep.md).

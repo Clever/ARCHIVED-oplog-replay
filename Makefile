@@ -1,40 +1,39 @@
 SHELL := /bin/bash
-PKGS := \
-github.com/Clever/oplog-replay/replay \
-github.com/Clever/oplog-replay/bson \
-github.com/Clever/oplog-replay/cmd/oplog-replay \
-github.com/Clever/oplog-replay/ratecontroller \
-github.com/Clever/oplog-replay/ratecontroller/fixed \
-github.com/Clever/oplog-replay/ratecontroller/relative
-
-.PHONY: test golint README
+PKG := github.com/Clever/oplog-replay/cmd/oplog-replay
+PKGS := $(shell go list ./... | grep -v /vendor)
+EXECUTABLE := oplog-replay
+.PHONY: test vendor build all
 
 GOVERSION := $(shell go version | grep 1.5)
 ifeq "$(GOVERSION)" ""
   $(error must be running Go version 1.5)
 endif
-
 export GO15VENDOREXPERIMENT = 1
+
+GOLINT := $(GOPATH)/bin/golint
+$(GOLINT):
+	go get github.com/golang/lint/golint
+
+GODEP := $(GOPATH)/bin/godep
+$(GODEP):
+	go get -u github.com/tools/godep
 
 all: build
 
 build:
-	go build -o bin/oplog-replay "github.com/Clever/oplog-replay/cmd/oplog-replay"
+	go build -o bin/$(EXECUTABLE) $(PKG)
 
 clean:
 	rm bin/*
 
 test: $(PKGS)
 
-golint:
-	@go get github.com/golang/lint/golint
-
-$(PKGS): golint README
+$(PKGS): $(GOLINT)
 	@go get -d -t $@
 	@gofmt -w=true $(GOPATH)/src/$@/*.go
 ifneq ($(NOLINT),1)
 	@echo "LINTING..."
-	@PATH=$(PATH):$(GOPATH)/bin golint $(GOPATH)/src/$@/*.go
+	@$(GOLINT) $(GOPATH)/src/$@/*.go
 	@echo ""
 endif
 ifeq ($(COVERAGE),1)
@@ -45,3 +44,7 @@ else
 	@go test $@ -test.v
 	@echo ""
 endif
+
+vendor: $(GODEP)
+	$(GODEP) save $(PKGS)
+	find vendor/ -path '*/vendor' -type d | xargs -IX rm -r X # remove any nested vendor directories

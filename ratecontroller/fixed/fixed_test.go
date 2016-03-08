@@ -9,8 +9,14 @@ import (
 )
 
 func TestRateController(t *testing.T) {
-	startTime := int(time.Now().Unix())
-	op := map[string]interface{}{"ts": bson.MongoTimestamp(startTime << 32), "h": 1000, "v": 2, "op": "n", "ns": "", "o": map[string]interface{}{"message": "nop"}}
+	startTime := time.Now().Unix()
+	op := map[string]interface{}{
+		"ts": bson.MongoTimestamp(startTime << 32),
+		"h":  1000,
+		"v":  2,
+		"op": "n",
+		"ns": "",
+		"o":  map[string]interface{}{"message": "nop"}}
 
 	controller := New(10)
 

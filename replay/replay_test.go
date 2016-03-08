@@ -78,7 +78,7 @@ func TestOplogReplaySpeed(t *testing.T) {
 		for _ = range ops {
 			receivedTime := int(math.Floor(time.Now().Sub(startTime).Seconds() + 0.5))
 			if receivedTime != expectedTimes[nextExpectedOp] {
-				fmt.Errorf("Got correct op, but expected it after %v second(s). Got it after %v second(s).\n", expectedTimes[nextExpectedOp], receivedTime)
+				return fmt.Errorf("Got correct op, but expected it after %v second(s). Got it after %v second(s).\n", expectedTimes[nextExpectedOp], receivedTime)
 			}
 			nextExpectedOp++
 		}

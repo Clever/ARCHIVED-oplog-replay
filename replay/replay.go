@@ -162,10 +162,10 @@ func getApplyOpsFunc(session *mgo.Session, alwaysUpsert bool) func([]interface{}
 		}
 		numApplied, ok := result["applied"].(int)
 		if !ok {
-			return fmt.Errorf("Failed to cast applied %s as int", numApplied)
+			return fmt.Errorf("Failed to cast applied '%v' as int", result["applied"])
 		}
 		if numApplied != len(ops) {
-			return fmt.Errorf("Operations applied %s does not match operations sent %s", numApplied, len(ops))
+			return fmt.Errorf("Operations applied %d does not match operations sent %d", numApplied, len(ops))
 		}
 		return nil
 	}

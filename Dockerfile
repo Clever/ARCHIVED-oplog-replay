@@ -13,5 +13,5 @@ RUN apt-get -y update && apt-get install -y mongodb-org
 # Gearcmd
 RUN curl -L https://github.com/Clever/gearcmd/releases/download/v0.3.8/gearcmd-v0.3.8-linux-amd64.tar.gz | tar xz -C /usr/local/bin --strip-components 1
 
-COPY bin/oplogreplay /usr/local/bin/oplogreplay
-CMD ["gearcmd", "--name", "oplog-replay", "--cmd", "/usr/local/bin/oplogreplay", "--cmdtimeout", "8h"]
+COPY bin/oplog-replay /usr/local/bin/oplog-replay
+CMD ["gearcmd", "--name", "oplog-replay", "--cmd", "/usr/local/bin/oplog-replay", "--cmdtimeout", "8h"]

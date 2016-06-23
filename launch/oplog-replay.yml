@@ -9,3 +9,4 @@ env:
 - AWS_REGION
 dependencies:
 - gearmand
+team: eng-apps
